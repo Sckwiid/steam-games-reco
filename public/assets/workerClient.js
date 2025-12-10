@@ -1,15 +1,31 @@
-const DEFAULT_BASE =
-  window.__WORKER_BASE ||
-  (location.hostname === 'localhost' ? 'http://localhost:8787' : 'https://<your-worker>.workers.dev');
+function getBase() {
+  const b = (window.__WORKER_BASE || "").replace(/\/$/, "");
+  return b;
+}
+
+const BASE = (window.__WORKER_BASE || "").replace(/\/$/, "");
+
+function apiUrl(path) {
+  if (!BASE) throw new Error("Worker base manquant. Vérifie assets/config.js");
+  return `${BASE}${path}`;
+}
 
 async function request(path, options = {}) {
-  const res = await fetch(`${DEFAULT_BASE}${path}`, {
+  const BASE = getBase();
+  if (!BASE) {
+    const error = new Error("Worker base manquant. Vérifie assets/config.js");
+    error.status = 0;
+    throw error;
+  }
+
+  const res = await fetch(`${BASE}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
       ...(options.headers || {}),
     },
   });
+
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     const error = new Error(json.error || 'Worker error');
