@@ -5,4 +5,4 @@ window.__SUPABASE = {
 };
 
 // URL publique de ton Worker (sans slash final)
-window.__WORKER_BASE = ' steam-proxy.sckwiid.workers.dev';
+window.__WORKER_BASE = 'steam-proxy.sckwiid.workers.dev';
