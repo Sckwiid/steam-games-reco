@@ -1,0 +1,72 @@
+[
+  {
+    "appid": 730,
+    "name": "Counter-Strike 2",
+    "price": 0,
+    "tags": ["FPS", "Multiplayer", "Competitive", "Co-op"],
+    "genres": ["Action"],
+    "categories": ["Online Co-op", "Multi-player"],
+    "review_ratio": 0.87,
+    "total_reviews": 8000000
+  },
+  {
+    "appid": 620,
+    "name": "Portal 2",
+    "price": 9.99,
+    "tags": ["Puzzle", "Co-op", "Adventure", "Sci-fi"],
+    "genres": ["Adventure", "Action"],
+    "categories": ["Co-op", "Online Co-op", "Single-player"],
+    "review_ratio": 0.97,
+    "total_reviews": 400000
+  },
+  {
+    "appid": 548430,
+    "name": "Deep Rock Galactic",
+    "price": 29.99,
+    "tags": ["Co-op", "FPS", "Rogue-lite", "Online Co-op"],
+    "genres": ["Action"],
+    "categories": ["Online Co-op", "Co-op", "Multi-player"],
+    "review_ratio": 0.95,
+    "total_reviews": 250000
+  },
+  {
+    "appid": 559100,
+    "name": "Hades",
+    "price": 20.99,
+    "tags": ["Rogue-lite", "Indie", "Action", "Story Rich"],
+    "genres": ["Action", "RPG"],
+    "categories": ["Single-player"],
+    "review_ratio": 0.98,
+    "total_reviews": 250000
+  },
+  {
+    "appid": 646570,
+    "name": "Slay the Spire",
+    "price": 22.99,
+    "tags": ["Card Battler", "Rogue-lite", "Indie"],
+    "genres": ["Indie", "Strategy"],
+    "categories": ["Single-player"],
+    "review_ratio": 0.97,
+    "total_reviews": 200000
+  },
+  {
+    "appid": 1172470,
+    "name": "Apex Legends",
+    "price": 0,
+    "tags": ["FPS", "Battle Royale", "Free to Play", "Online Co-op"],
+    "genres": ["Action"],
+    "categories": ["Online Co-op", "Co-op", "Multi-player"],
+    "review_ratio": 0.8,
+    "total_reviews": 700000
+  },
+  {
+    "appid": 447040,
+    "name": "Little Nightmares",
+    "price": 19.99,
+    "tags": ["Horror", "Adventure", "Puzzle Platformer"],
+    "genres": ["Adventure"],
+    "categories": ["Single-player"],
+    "review_ratio": 0.86,
+    "total_reviews": 60000
+  }
+]

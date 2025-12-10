@@ -1,0 +1,10 @@
+name = "steam-reco-proxy"
+main = "src/index.js"
+compatibility_date = "2024-10-05"
+
+[vars]
+# Allowed frontend origin (GitHub Pages). Override in production.
+ALLOWED_ORIGIN = "https://sckwiid.github.io"
+
+[observability]
+enabled = true

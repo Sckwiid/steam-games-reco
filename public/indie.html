@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Indie Spotlight | Steam Scout</title>
+    <link rel="stylesheet" href="./assets/styles.css" />
+  </head>
+  <body data-page="indie">
+    <header class="topbar">
+      <div class="brand">
+        <span class="dot"></span>
+        <a href="./">Steam Scout</a>
+      </div>
+      <nav>
+        <a href="./history.html" class="ghost">Historique</a>
+        <a href="./" class="ghost">Accueil</a>
+        <button id="themeToggle" class="ghost">☾</button>
+      </nav>
+    </header>
+
+    <main class="layout">
+      <section class="section">
+        <header class="section-header">
+          <div>
+            <p class="eyebrow">Indie Spotlight</p>
+            <h1>Pépites indés sélectionnées</h1>
+            <p class="muted small">Favorise les jeux bien notés ou peu évalués mais prometteurs, plus permissif que le flux principal.</p>
+          </div>
+        </header>
+        <div id="indieList" class="grid results-grid"></div>
+        <p id="indieEmpty" class="muted">Dataset indé introuvable pour l’instant.</p>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>Basé sur dataset local compressé · Aucun appel externe.</p>
+    </footer>
+
+    <script type="module" src="./assets/app.js"></script>
+  </body>
+</html>
