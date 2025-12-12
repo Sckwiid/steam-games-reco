@@ -1,12 +1,60 @@
 import { formatPrice, hashFilters, normalizePercent, clamp } from './utils.js';
 
 export function recommend({ dataset, library, achievements = {}, filters, priceMax, surprise = false, userId }) {
+  // Local fallback TOP 3 (algo classique)
+  const scored = scoreCandidates({ dataset, library, achievements, filters, priceMax, surprise, userId });
+  return pickDiversified(scored.slice(0, 100), surprise);
+}
+
+// Shortlist pour l'IA : renvoie des candidats scorés (compatibilité calculée localement) limités à N.
+export function shortlistCandidates({ dataset, library, achievements = {}, filters, priceMax, surprise = false, userId, limit = 50 }) {
+  const scored = scoreCandidates({ dataset, library, achievements, filters, priceMax, surprise, userId });
+  return scored.slice(0, limit);
+}
+
+// Transforme la shortlist en payload compact pour le LLM.
+export function toLlmCandidates(candidates, limit = 50) {
+  return candidates.slice(0, limit).map((g) => ({
+    appid: g.appid,
+    name: g.name,
+    tags: (g.tags || []).slice(0, 6),
+    genres: (g.genres || []).slice(0, 4),
+    price: g.price || 0,
+    review_ratio: g.review_ratio ?? null,
+    total_reviews: g.total_reviews ?? 0,
+    compatibility_hint: g.compatibility ?? null,
+  }));
+}
+
+// Profil condensé pour guider le LLM (tags dominants + exemples top playtime).
+export function buildUserProfileForLlm(dataset, library, achievements, filters, priceMax, maxExamples = 8) {
+  const topPlayed = getTopPlayed(library, 15);
+  const profile = buildProfile(dataset, topPlayed, achievements);
+  const tagEntries = Object.entries(profile.tagWeights).sort((a, b) => b[1] - a[1]);
+  const favTags = tagEntries.slice(0, 8).map(([tag]) => tag);
+  const index = new Map(dataset.map((g) => [g.appid, g]));
+  const examples = topPlayed.slice(0, maxExamples).map((g) => {
+    const data = index.get(g.appid) || {};
+    return {
+      appid: g.appid,
+      name: data.name || g.name || `App ${g.appid}`,
+      hours: Math.round((g.playtime_forever || 0) / 60),
+      tags: (data.tags || []).slice(0, 5),
+      achievement_ratio: achievements?.[g.appid]?.ratio ?? null,
+    };
+  });
+  return {
+    playtime_top: examples,
+    fav_tags: favTags,
+    filters,
+    budget_max: priceMax ?? null,
+  };
+}
+
+function scoreCandidates({ dataset, library, achievements = {}, filters, priceMax, surprise, userId }) {
   if (!dataset?.length) return [];
   const ownedSet = new Set((library?.games || []).map((g) => g.appid));
-  const topPlayed = [...(library?.games || [])]
-    .filter((g) => g.playtime_forever > 0)
-    .sort((a, b) => b.playtime_forever - a.playtime_forever)
-    .slice(0, 15);
+  const topPlayed = getTopPlayed(library, 15);
   const profile = buildProfile(dataset, topPlayed, achievements);
   const candidates = [];
 
@@ -46,9 +94,7 @@ export function recommend({ dataset, library, achievements = {}, filters, priceM
   const min = Math.min(...scores);
   const max = Math.max(...scores);
 
-  const withCompat = topPool.map((c) => ({ ...c, compatibility: normalizePercent(c.score, min, max) }));
-  const diversified = pickDiversified(withCompat, surprise);
-  return diversified;
+  return candidates.map((c) => ({ ...c, compatibility: normalizePercent(c.score, min, max) }));
 }
 
 function buildProfile(dataset, topGames, achievements) {
@@ -62,7 +108,7 @@ function buildProfile(dataset, topGames, achievements) {
     const data = index.get(entry.appid);
     if (!data) continue;
     const playWeight = entry.playtime_forever / maxPlaytime;
-    const achieve = achievements[entry.appid];
+    const achieve = achievements?.[entry.appid];
     const boost = achieve?.ratio >= 70 ? 1.5 : 1;
     const weight = playWeight * boost;
     (data.tags || []).forEach((tag) => (tagWeights[tag] = (tagWeights[tag] || 0) + weight));
@@ -71,6 +117,13 @@ function buildProfile(dataset, topGames, achievements) {
   }
 
   return { tagWeights, genreWeights, categoryWeights, topTags: Object.keys(tagWeights).slice(0, 8) };
+}
+
+function getTopPlayed(library, limit) {
+  return [...(library?.games || [])]
+    .filter((g) => g.playtime_forever > 0)
+    .sort((a, b) => b.playtime_forever - a.playtime_forever)
+    .slice(0, limit);
 }
 
 function computeScoreParts(game, profile, priceCap) {

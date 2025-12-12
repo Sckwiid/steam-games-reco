@@ -26,9 +26,22 @@ export function hashFilters(filters = {}) {
 
 // Transforme le gros JSON { "appid": { ... } } en tableau normalisé
 function normalizeDataset(raw) {
-  // Si c'est déjà un tableau (cas où tu changes plus tard de format)
-  if (Array.isArray(raw)) return raw;
-  if (!raw || typeof raw !== 'object') return [];
+  if (!raw) return [];
+  // Si c'est déjà un tableau, on uniformise quand même pour ajouter les fallbacks image/store.
+  if (Array.isArray(raw)) {
+    return raw
+      .map((g) => ({
+        ...g,
+        appid: Number(g.appid),
+        price: typeof g.price === 'number' ? g.price : 0,
+        header_image:
+          g.header_image || `https://cdn.akamai.steamstatic.com/steam/apps/${g.appid}/header.jpg`,
+        store_url: g.store_url || `https://store.steampowered.com/app/${g.appid}/`,
+      }))
+      .filter((game) => game.name && !Number.isNaN(game.appid));
+  }
+
+  if (typeof raw !== 'object') return [];
 
   return Object.entries(raw)
     .map(([appid, g]) => {
@@ -49,9 +62,11 @@ function normalizeDataset(raw) {
         categories: g.categories || [],
         review_ratio,
         total_reviews: total,
+        header_image:
+          g.header_image || `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
+        store_url: g.store_url || `https://store.steampowered.com/app/${appid}/`,
       };
     })
-    // on nettoie un peu
     .filter((game) => game.name && !Number.isNaN(game.appid));
 }
 

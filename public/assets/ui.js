@@ -51,13 +51,28 @@ export function renderResults(results = [], onFeedback) {
   results.forEach((item, idx) => {
     const card = document.createElement('article');
     card.className = 'card';
+    const storeUrl = item.store_url || `https://store.steampowered.com/app/${item.appid}/`;
+    if (item.header_image) {
+      const cover = document.createElement('a');
+      cover.className = 'cover';
+      cover.href = storeUrl;
+      cover.target = '_blank';
+      cover.rel = 'noreferrer';
+      const img = document.createElement('img');
+      img.src = item.header_image;
+      img.alt = item.name;
+      cover.appendChild(img);
+      card.appendChild(cover);
+    }
     const title = document.createElement('h3');
     title.innerHTML = `${rankLabel(idx)} ${item.name} <span class="pill success">${item.compatibility}%</span>`;
     const meta = document.createElement('div');
     meta.className = 'tagline';
+    const reviewPct =
+      typeof item.review_ratio === 'number' ? `${(item.review_ratio * 100).toFixed(0)}% avis` : 'Avis n/a';
     meta.innerHTML = [
       `<span class="badge">Prix ${item.price_label}</span>`,
-      `<span class="badge">${(item.review_ratio * 100).toFixed(0)}% avis</span>`,
+      `<span class="badge">${reviewPct}</span>`,
       item.categories?.includes('Multiplayer') ? `<span class="badge">Multi/Coop</span>` : '',
     ]
       .filter(Boolean)
@@ -73,6 +88,13 @@ export function renderResults(results = [], onFeedback) {
     card.appendChild(title);
     card.appendChild(meta);
     card.appendChild(tags);
+    const steamLink = document.createElement('a');
+    steamLink.className = 'steam-link';
+    steamLink.href = storeUrl;
+    steamLink.target = '_blank';
+    steamLink.rel = 'noreferrer';
+    steamLink.textContent = 'Voir sur Steam →';
+    card.appendChild(steamLink);
     if (onFeedback) {
       const fb = document.createElement('div');
       fb.className = 'feedback';
