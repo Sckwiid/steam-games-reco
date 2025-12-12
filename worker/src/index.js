@@ -1,5 +1,5 @@
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1h
-const RATE_LIMIT_MAX = 3;
+const RATE_LIMIT_MAX = 500;
 const QUEUE_WINDOW_MS = 30 * 1000;
 const LLM_CACHE_TTL_MS = 15 * 60 * 1000;
 
@@ -152,8 +152,7 @@ function pruneQueue() {
 
 function estimateQueue() {
   pruneQueue();
-  const base = Math.min(50, queueTimestamps.length);
-  return base + Math.floor(Math.random() * 3);
+  return Math.min(5, queueTimestamps.length); // max 5
 }
 
 async function fetchOwnedGames(steamid, env) {
