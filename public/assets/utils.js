@@ -24,23 +24,68 @@ export function hashFilters(filters = {}) {
   ).slice(0, 32);
 }
 
+// Transforme le gros JSON { "appid": { ... } } en tableau normalisé
+function normalizeDataset(raw) {
+  // Si c'est déjà un tableau (cas où tu changes plus tard de format)
+  if (Array.isArray(raw)) return raw;
+  if (!raw || typeof raw !== 'object') return [];
+
+  return Object.entries(raw)
+    .map(([appid, g]) => {
+      const pos = g.positive ?? 0;
+      const neg = g.negative ?? 0;
+      const total = pos + neg;
+      const review_ratio = total > 0 ? pos / total : null;
+
+      // tags: { "Indie": 22, "Casual": 21 } -> ["Indie", "Casual"]
+      const tags = g.tags ? Object.keys(g.tags) : [];
+
+      return {
+        appid: Number(appid),
+        name: g.name,
+        price: typeof g.price === 'number' ? g.price : 0,
+        tags,
+        genres: g.genres || [],
+        categories: g.categories || [],
+        review_ratio,
+        total_reviews: total,
+      };
+    })
+    // on nettoie un peu
+    .filter((game) => game.name && !Number.isNaN(game.appid));
+}
+
 export async function fetchDataset() {
-  const candidates = ['data/games.min.json.gz', 'data/games.mock.json', 'data/games.json', 'data/games.json.gz'];
+  const candidates = [
+    'data/games.min.json.gz',
+    'data/games.mock.json',
+    'data/games.json',
+    'data/games.json.gz',
+  ];
+
   for (const path of candidates) {
     try {
       const res = await fetch(path);
       if (!res.ok) continue;
+
+      let json;
       if (path.endsWith('.gz') && 'DecompressionStream' in self) {
         const ds = new DecompressionStream('gzip');
         const decompressed = res.body.pipeThrough(ds);
         const text = await new Response(decompressed).text();
-        return JSON.parse(text);
+        json = JSON.parse(text);
+      } else {
+        json = await res.json();
       }
-      return await res.json();
+
+      const normalized = normalizeDataset(json);
+      console.log('Dataset chargé depuis', path, 'jeux =', normalized.length);
+      return normalized;
     } catch (err) {
       console.warn('Dataset fetch failed for', path, err);
     }
   }
+
   throw new Error('Dataset introuvable');
 }
 

@@ -220,6 +220,7 @@ function initHistoryPage() {
 async function initIndiePage() {
   try {
     const dataset = await fetchDataset();
+    window.__DATASET = dataset;
     const indie = dataset
       .filter((g) => (g.tags || []).includes('Indie'))
       .filter((g) => g.review_ratio >= 0.5 || g.total_reviews < 20)
