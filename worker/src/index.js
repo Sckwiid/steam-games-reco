@@ -47,6 +47,11 @@ async function handleRequest(request, env, ctx) {
       if (!steamid) {
         return withCors(jsonResponse({ error: 'Missing steamid' }, 400), request, env);
       }
+      const userId = request.headers.get('x-user-id') || steamid;
+      const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+      if (checkRateLimit(userId, ip, { consume: true })) {
+        return withCors(jsonResponse({ error: 'Rate limited' }, 429), request, env);
+      }
       const owned = await fetchOwnedGames(steamid, env);
       return withCors(jsonResponse({ data: owned }), request, env);
     }
@@ -56,6 +61,11 @@ async function handleRequest(request, env, ctx) {
       const appid = url.searchParams.get('appid');
       if (!steamid || !appid) {
         return withCors(jsonResponse({ error: 'Missing steamid/appid' }, 400), request, env);
+      }
+      const userId = request.headers.get('x-user-id') || steamid;
+      const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+      if (checkRateLimit(userId, ip, { consume: true })) {
+        return withCors(jsonResponse({ error: 'Rate limited' }, 429), request, env);
       }
       const achievements = await fetchAchievements(steamid, appid, env);
       return withCors(jsonResponse({ data: achievements }), request, env);
