@@ -222,7 +222,7 @@ async function callOpenRouterRank(userProfile, candidates, env) {
 
 async function callOpenRouterChat(messages, env, { max_tokens = 220, temperature = 0.4 } = {}) {
   if (!env.OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY missing');
-  const freeModel = 'deepseek/deepseek-r1:free';
+  const freeModel = 'tngtech/deepseek-r1t2-chimera:free';
   const paidModel = 'deepseek/deepseek-r1';
 
   const attempt = async (model) => {
