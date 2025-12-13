@@ -1,9 +1,9 @@
 import { fetchDataset, lightweightFingerprint } from './utils.js';
-import { recommend, filtersKey, shortlistCandidates, toLlmCandidates, buildUserProfileForLlm } from './recommender.js';
+import { filtersKey, shortlistCandidates, toLlmCandidates, buildUserProfileForLlm, mapAiPicksToGames } from './recommender.js';
 import { getLibrary, getTopAchievements } from './steamClient.js';
-import { initThemeToggle, setStatus, setQueue, renderResults, renderExplanation, renderHistory, renderIndieList, setCacheBadge, setLlmBadge } from './ui.js';
+import { initThemeToggle, setStatus, setQueue, renderResults, renderHistory, renderIndieList, setCacheBadge, setLlmBadge } from './ui.js';
 import { getHistory, saveRecommendation, saveFeedback, getUserId, setCachedRecommendation, getCachedRecommendation } from './storage.js';
-import { fetchQueue, fetchExplanation, rankCandidates } from './workerClient.js';
+import { fetchQueue, rankCandidates } from './workerClient.js';
 import { saveFeedbackRemote, saveRecommendationRemote, supabaseEnabled } from './supabaseClient.js';
 
 const state = {
@@ -88,7 +88,6 @@ async function runRecommendation({ surprise }) {
   }
   const userFingerprint = `${state.userId}-${lightweightFingerprint()}`;
   setStatus('Chargement du dataset…', { loading: true });
-  renderExplanation('');
   setCacheBadge(false);
   setLlmBadge(false);
   try {
@@ -99,9 +98,8 @@ async function runRecommendation({ surprise }) {
     const cached = getCachedRecommendation(cacheKey);
     if (cached) {
       renderResults(cached.items, handleFeedback);
-      renderExplanation(cached.explanation || '');
       setCacheBadge(true);
-      setLlmBadge(Boolean(cached.explanation));
+      setLlmBadge(true);
       setStatus('Résultat issu du cache (24h).', { loading: false });
       return;
     }
@@ -129,76 +127,23 @@ async function runRecommendation({ surprise }) {
 
     const userProfile = buildUserProfileForLlm(dataset, library, achievements, state.filters, state.priceMax);
 
-    let recos = [];
-    let usedLlmRanking = false;
-    try {
-      setStatus('Classement IA DeepSeek R1…', { loading: true });
-      const picks = await rankCandidates(userProfile, toLlmCandidates(shortlist), state.userId);
-      const pool = new Map(shortlist.map((g) => [g.appid, g]));
-      recos = (picks || [])
-        .map((p) => {
-          const base = pool.get(p.appid);
-          if (!base) return null;
-          const compat = typeof p.compatibility === 'number' ? Math.round(p.compatibility) : base.compatibility;
-          return {
-            ...base,
-            compatibility: Math.max(0, Math.min(100, compat || 0)),
-          };
-        })
-        .filter(Boolean)
-        .slice(0, 3);
-      usedLlmRanking = recos.length > 0;
-    } catch (err) {
-      console.warn('LLM ranking failed', err?.message);
-    }
+    setStatus('Classement IA DeepSeek R1…', { loading: true });
+    const aiPicks = await rankCandidates(userProfile, toLlmCandidates(shortlist), state.userId);
+    const recos = mapAiPicksToGames(aiPicks, dataset).slice(0, 3);
 
     if (!recos.length) {
-      recos = recommend({
-        dataset,
-        library,
-        achievements,
-        filters: state.filters,
-        priceMax: state.priceMax,
-        surprise,
-        userId: userFingerprint,
-      });
-      setStatus('Mode IA avancé indisponible, résultat basé sur l’algorithme classique.', { loading: false });
+      throw new Error("L'IA n’a pas trouvé de jeux correspondants. Essaie avec moins de filtres ou un budget plus large.");
     }
 
-    if (!recos.length) throw new Error('Aucune recommandation trouvée avec ces filtres.');
-
-    setStatus(usedLlmRanking ? 'Formulation par DeepSeek R1…' : 'Explication (algo classique)…', { loading: usedLlmRanking });
     renderResults(recos, handleFeedback);
+    setLlmBadge(true);
 
-    const explanation = await buildExplanation(recos, surprise);
-    if (explanation) {
-      renderExplanation(explanation);
-      setLlmBadge(true);
-    } else {
-      renderExplanation('');
-    }
-
-    setCachedRecommendation(cacheKey, { items: recos, explanation });
+    setCachedRecommendation(cacheKey, { items: recos, explanation: '' });
     persistHistory(steamid, recos, surprise);
-    setStatus(usedLlmRanking ? 'Terminé.' : 'Terminé (mode classique).', { loading: false });
+    setStatus('Terminé.', { loading: false });
   } catch (err) {
     console.error(err);
     setStatus(err.message || 'Erreur', { loading: false });
-  }
-}
-
-async function buildExplanation(recos, surprise) {
-  try {
-    const summary = `Profil généré côté client. Pertinence 70%, découverte 30%. Mode surprise: ${surprise ? 'oui' : 'non'}.`;
-    const picks = recos.slice(0, 3).map((r) => ({
-      title: r.name,
-      compatibility: r.compatibility,
-      tags: r.tags?.slice(0, 6) || [],
-    }));
-    return await fetchExplanation(summary, picks, state.userId);
-  } catch (err) {
-    console.warn('LLM explanation skipped', err?.message);
-    return '';
   }
 }
 

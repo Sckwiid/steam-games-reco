@@ -88,6 +88,12 @@ export function renderResults(results = [], onFeedback) {
     card.appendChild(title);
     card.appendChild(meta);
     card.appendChild(tags);
+    if (item.aiReason) {
+      const reason = document.createElement('p');
+      reason.className = 'ai-reason';
+      reason.innerHTML = `<em>Pourquoi ce jeu ?</em> ${item.aiReason}`;
+      card.appendChild(reason);
+    }
     const steamLink = document.createElement('a');
     steamLink.className = 'steam-link';
     steamLink.href = storeUrl;

@@ -12,6 +12,27 @@ export function shortlistCandidates({ dataset, library, achievements = {}, filte
   return scored.slice(0, limit);
 }
 
+// Mappe les picks IA (par titre) vers les jeux du dataset.
+export function mapAiPicksToGames(aiPicks, gamesDb) {
+  if (!Array.isArray(aiPicks) || !gamesDb?.length) return [];
+  return aiPicks
+    .map((pick, idx) => {
+      const title = (pick?.title || '').trim();
+      if (!title) return null;
+      const norm = title.toLowerCase();
+      let game = gamesDb.find((g) => (g.name || '').toLowerCase() === norm);
+      if (!game) game = gamesDb.find((g) => (g.name || '').toLowerCase().includes(norm));
+      if (!game) return null;
+      return {
+        ...game,
+        compatibility: 98 - idx * 3, // cosmétique pour l’UI
+        aiReason: pick.reason || '',
+        price_label: formatPrice(game.price || 0),
+      };
+    })
+    .filter(Boolean);
+}
+
 // Transforme la shortlist en payload compact pour le LLM.
 export function toLlmCandidates(candidates, limit = 50) {
   return candidates.slice(0, limit).map((g) => ({
