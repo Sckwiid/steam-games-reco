@@ -1,8 +1,8 @@
 import { fetchDataset, lightweightFingerprint } from './utils.js';
-import { filtersKey, shortlistCandidates, toLlmCandidates, buildUserProfileForLlm, mapAiPicksToGames } from './recommender.js';
+import { shortlistCandidates, toLlmCandidates, buildUserProfileForLlm, mapAiPicksToGames } from './recommender.js';
 import { getLibrary, getTopAchievements } from './steamClient.js';
-import { initThemeToggle, setStatus, setQueue, renderResults, renderHistory, renderIndieList, setCacheBadge, setLlmBadge } from './ui.js';
-import { getHistory, saveRecommendation, saveFeedback, getUserId, setCachedRecommendation, getCachedRecommendation } from './storage.js';
+import { initThemeToggle, setStatus, setQueue, renderResults, renderHistory, renderIndieList, setCacheBadge, setLlmBadge, scrollToResults, toggleRerollButton } from './ui.js';
+import { getHistory, saveRecommendation, saveFeedback, getUserId, setCachedRecommendation, getCachedRecommendation, buildRecoKey, canUseReroll, trackReroll } from './storage.js';
 import { fetchQueue, rankCandidates } from './workerClient.js';
 import { saveFeedbackRemote, saveRecommendationRemote, supabaseEnabled } from './supabaseClient.js';
 
@@ -11,6 +11,7 @@ const state = {
   userId: getUserId(),
   filters: { quick: [], modes: [], budget: null },
   priceMax: 30,
+  lastConfig: null,
 };
 
 initThemeToggle();
@@ -66,8 +67,10 @@ async function initHomePage() {
   loadDataset();
   const recommendBtn = document.getElementById('recommendBtn');
   const surpriseBtn = document.getElementById('surpriseBtn');
-  if (recommendBtn) recommendBtn.addEventListener('click', () => runRecommendation({ surprise: false }));
-  if (surpriseBtn) surpriseBtn.addEventListener('click', () => runRecommendation({ surprise: true }));
+  const rerollBtn = document.getElementById('rerollBtn');
+  if (recommendBtn) recommendBtn.addEventListener('click', () => runRecommendation({ mode: 'standard' }));
+  if (surpriseBtn) surpriseBtn.addEventListener('click', () => runRecommendation({ mode: 'surprise' }));
+  if (rerollBtn) rerollBtn.addEventListener('click', handleReroll);
   const queue = await fetchQueue();
   setQueue(queue);
   setStatus('Prêt à analyser ta bibliothèque.', { loading: false });
@@ -79,7 +82,7 @@ async function loadDataset() {
   return state.dataset;
 }
 
-async function runRecommendation({ surprise }) {
+async function runRecommendation({ mode = 'standard', forceReroll = false }) {
   const steamInput = document.getElementById('steamIdInput');
   const steamid = steamInput?.value?.trim();
   if (!steamid || !/^\d{5,}$/.test(steamid)) {
@@ -90,17 +93,21 @@ async function runRecommendation({ surprise }) {
   setStatus('Chargement du dataset…', { loading: true });
   setCacheBadge(false);
   setLlmBadge(false);
+  toggleRerollButton(false);
   try {
     const dataset = await loadDataset();
     setStatus('Récupération de ta bibliothèque Steam…', { loading: true });
 
-    const cacheKey = filtersKey({ ...state.filters, surprise }, state.priceMax, steamid);
-    const cached = getCachedRecommendation(cacheKey);
+    const cacheKey = buildRecoKey({ steamid, mode, filters: state.filters, priceMax: state.priceMax });
+    const cached = !forceReroll ? getCachedRecommendation(cacheKey) : null;
     if (cached) {
       renderResults(cached.items, handleFeedback);
       setCacheBadge(true);
       setLlmBadge(true);
       setStatus('Résultat issu du cache (24h).', { loading: false });
+      state.lastConfig = { steamid, mode, cacheKey };
+      toggleRerollButton(true);
+      scrollToResults();
       return;
     }
 
@@ -119,7 +126,6 @@ async function runRecommendation({ surprise }) {
       achievements,
       filters: state.filters,
       priceMax: state.priceMax,
-      surprise,
       userId: userFingerprint,
     });
 
@@ -127,8 +133,8 @@ async function runRecommendation({ surprise }) {
 
     const userProfile = buildUserProfileForLlm(dataset, library, achievements, state.filters, state.priceMax);
 
-    setStatus('Classement IA DeepSeek R1…', { loading: true });
-    const aiPicks = await rankCandidates(userProfile, toLlmCandidates(shortlist), state.userId);
+    setStatus('Classement par l’IA…', { loading: true });
+    const aiPicks = await rankCandidates(userProfile, toLlmCandidates(shortlist), state.userId, mode);
     const recos = mapAiPicksToGames(aiPicks, dataset).slice(0, 3);
 
     if (!recos.length) {
@@ -139,7 +145,10 @@ async function runRecommendation({ surprise }) {
     setLlmBadge(true);
 
     setCachedRecommendation(cacheKey, { items: recos, explanation: '' });
-    persistHistory(steamid, recos, surprise);
+    persistHistory(steamid, recos, mode === 'surprise');
+    state.lastConfig = { steamid, mode, cacheKey };
+    toggleRerollButton(true);
+    scrollToResults();
     setStatus('Terminé.', { loading: false });
   } catch (err) {
     console.error(err);
@@ -219,4 +228,24 @@ async function initIndiePage() {
     const empty = document.getElementById('indieEmpty');
     if (empty) empty.textContent = 'Impossible de charger le dataset indé.';
   }
+}
+
+function handleReroll() {
+  if (!state.lastConfig) {
+    setStatus('Aucune recommandation à relancer.', { loading: false });
+    return;
+  }
+  const { steamid, mode, cacheKey } = state.lastConfig;
+  const steamInput = document.getElementById('steamIdInput');
+  if (steamInput && !steamInput.value) {
+    steamInput.value = steamid;
+  }
+  const usage = canUseReroll(cacheKey);
+  if (!usage.allowed) {
+    setStatus('Tu as atteint la limite de 3 rerolls pour cette configuration aujourd’hui.', { loading: false });
+    return;
+  }
+  trackReroll(cacheKey);
+  setStatus('Nouveau tirage IA en cours…', { loading: true });
+  runRecommendation({ mode, forceReroll: true });
 }

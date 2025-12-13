@@ -231,6 +231,14 @@ function passesQualityRules(game) {
   return true;
 }
 
+function isTooSimilar(a, b) {
+  const setA = new Set(a.tags || []);
+  const setB = new Set(b.tags || []);
+  const common = [...setA].filter((t) => setB.has(t)).length;
+  const ratio = common / Math.max(1, setA.size, setB.size);
+  return ratio > 0.6;
+}
+
 function pickDiversified(list, surprise) {
   if (!list.length) return [];
   const first = list[0];
@@ -242,21 +250,8 @@ function pickDiversified(list, surprise) {
     others[0];
   const result = [first, alt1, alt2].filter(Boolean);
   if (surprise) {
-    // push a more surprising pick if available
     const quirky = others.reverse().find((g) => g.overlap < 0.3);
     if (quirky && !result.includes(quirky)) result[result.length - 1] = quirky;
   }
   return result.slice(0, 3);
-}
-
-function isTooSimilar(a, b) {
-  const setA = new Set(a.tags || []);
-  const setB = new Set(b.tags || []);
-  const common = [...setA].filter((t) => setB.has(t)).length;
-  const ratio = common / Math.max(1, setA.size, setB.size);
-  return ratio > 0.6;
-}
-
-export function filtersKey(filters, priceMax, steamid) {
-  return hashFilters({ filters, priceMax, steamid });
 }

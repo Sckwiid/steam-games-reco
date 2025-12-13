@@ -4,6 +4,7 @@ const HISTORY_KEY = 'ssc_history_v1';
 const UID_KEY = 'ssc_uid';
 const CACHE_KEY = 'ssc_cache_v1';
 const PROFILE_CACHE_KEY = 'ssc_profile_cache_v1';
+const REROLL_USAGE_KEY = 'ssc_reroll_usage_v1';
 
 export function getUserId() {
   let id = localStorage.getItem(UID_KEY);
@@ -62,6 +63,43 @@ export function getCachedRecommendation(key) {
   const entry = cache[key];
   if (entry && entry.expires > Date.now()) return entry.data;
   return null;
+}
+
+// Construit une clé de cache/reroll par config (steamid + mode + filtres normalisés).
+export function buildRecoKey({ steamid, mode = 'standard', filters = {}, priceMax }) {
+  const normalized = {
+    quick: [...(filters.quick || [])].sort(),
+    modes: [...(filters.modes || [])].sort(),
+    budget: filters.budget || null,
+    priceMax: priceMax ?? null,
+  };
+  return `reco:${steamid}:${mode}:${JSON.stringify(normalized)}`;
+}
+
+// Reroll quota : max 3 par jour et par recoKey.
+export function canUseReroll(recoKey) {
+  const usage = readCache(REROLL_USAGE_KEY);
+  const today = new Date().toISOString().slice(0, 10);
+  const entry = usage[recoKey];
+  if (!entry || entry.date !== today) {
+    usage[recoKey] = { date: today, count: 0 };
+    localStorage.setItem(REROLL_USAGE_KEY, JSON.stringify(usage));
+    return { allowed: true, remaining: 3 };
+  }
+  return { allowed: entry.count < 3, remaining: Math.max(0, 3 - entry.count) };
+}
+
+export function trackReroll(recoKey) {
+  const usage = readCache(REROLL_USAGE_KEY);
+  const today = new Date().toISOString().slice(0, 10);
+  const entry = usage[recoKey];
+  if (!entry || entry.date !== today) {
+    usage[recoKey] = { date: today, count: 1 };
+  } else {
+    usage[recoKey].count = Math.min(3, (usage[recoKey].count || 0) + 1);
+  }
+  localStorage.setItem(REROLL_USAGE_KEY, JSON.stringify(usage));
+  return usage[recoKey];
 }
 
 function readCache(key) {

@@ -38,6 +38,15 @@ export function setLlmBadge(visible) {
   if (el) el.hidden = !visible;
 }
 
+export function toggleRerollButton(visible) {
+  const btn = document.getElementById('rerollBtn');
+  if (btn) btn.hidden = !visible;
+}
+
+export function scrollToResults() {
+  document.getElementById('reco-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 export function renderResults(results = [], onFeedback) {
   const container = document.getElementById('results');
   const empty = document.createElement('p');

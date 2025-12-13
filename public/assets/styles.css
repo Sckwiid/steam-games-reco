@@ -376,6 +376,12 @@ input[type='range'] {
   line-height: 1.4;
 }
 
+.reroll-wrap {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-start;
+}
+
 @media (max-width: 820px) {
   .hero {
     grid-template-columns: 1fr;

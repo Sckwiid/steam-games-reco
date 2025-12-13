@@ -64,44 +64,101 @@ async function handleRequest(request, env, ctx) {
     if (url.pathname === '/api/llm/explain' && request.method === 'POST') {
       const userId = request.headers.get('x-user-id') || 'anon';
       const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+
+      console.log('[/api/llm/explain] incoming', { userId, ip });
+
       if (checkRateLimit(userId, ip, { consume: true })) {
+        console.warn('[/api/llm/explain] rate-limited', { userId, ip });
         return withCors(jsonResponse({ error: 'Rate limited' }, 429), request, env);
       }
+
       const body = await request.json().catch(() => ({}));
-      const { summary, picks } = body;
+      const { summary, picks } = body || {};
+      console.log('[/api/llm/explain] payload snapshot', {
+        hasSummary: !!summary,
+        picksCount: Array.isArray(picks) ? picks.length : -1,
+      });
+
       if (!summary || !Array.isArray(picks)) {
+        console.error('[/api/llm/explain] Invalid payload', { body });
         return withCors(jsonResponse({ error: 'Invalid payload' }, 400), request, env);
       }
+
       const cacheKey = await hashPayload({ summary, picks });
       const cached = llmCache.get(cacheKey);
       if (cached && cached.expires > Date.now()) {
+        console.log('[/api/llm/explain] cache hit');
         return withCors(jsonResponse({ explanation: cached.data, cached: true }), request, env);
       }
-      const explanation = await callOpenRouterExplain(summary, picks, env);
-      llmCache.set(cacheKey, { data: explanation, expires: Date.now() + LLM_CACHE_TTL_MS });
-      return withCors(jsonResponse({ explanation, cached: false }), request, env);
+
+      try {
+        const explanation = await callOpenRouterExplain(summary, picks, env);
+        console.log('[/api/llm/explain] explanation length', explanation?.length || 0);
+        llmCache.set(cacheKey, { data: explanation, expires: Date.now() + LLM_CACHE_TTL_MS });
+        return withCors(jsonResponse({ explanation, cached: false }), request, env);
+      } catch (err) {
+        console.error('[/api/llm/explain] ERROR from callOpenRouterExplain', {
+          message: err?.message,
+          stack: err?.stack,
+        });
+        throw err;
+      }
     }
 
     if (url.pathname === '/api/llm/rank' && request.method === 'POST') {
       const userId = request.headers.get('x-user-id') || 'anon';
       const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+
+      console.log('[/api/llm/rank] incoming', { userId, ip });
+
       if (checkRateLimit(userId, ip, { consume: true })) {
+        console.warn('[/api/llm/rank] rate-limited', { userId, ip });
         return withCors(jsonResponse({ error: 'Rate limited' }, 429), request, env);
       }
+
       const body = await request.json().catch(() => ({}));
-      const { userProfile, candidates } = body;
-      if (!userProfile || !Array.isArray(candidates) || candidates.length === 0) {
+      const { userProfile, mode = 'standard' } = body || {};
+
+      const topGames = Array.isArray(userProfile?.playtime_top)
+        ? userProfile.playtime_top.slice(0, 10)
+        : [];
+
+      console.log('[/api/llm/rank] payload snapshot', {
+        hasProfile: !!userProfile,
+        topGamesCount: topGames.length,
+        mode,
+      });
+
+      if (!topGames.length) {
+        console.error('[/api/llm/rank] Invalid payload (no top games)', { body });
         return withCors(jsonResponse({ error: 'Invalid payload' }, 400), request, env);
       }
-      const trimmedCandidates = candidates.slice(0, 60); // limite la taille du prompt
-      const picks = await callOpenRouterRank(userProfile, trimmedCandidates, env);
-      return withCors(jsonResponse({ picks }), request, env);
+
+      try {
+        const picks = await callOpenRouterRank(topGames, env, mode);
+        console.log('[/api/llm/rank] LLM picks (titles)', picks);
+        return withCors(jsonResponse({ picks }), request, env);
+      } catch (err) {
+        console.error('[/api/llm/rank] ERROR from callOpenRouterRank', {
+          message: err?.message,
+          stack: err?.stack,
+        });
+        throw err; // catched by le catch global
+      }
     }
 
     return withCors(jsonResponse({ error: 'Not found' }, 404), request, env);
   } catch (err) {
-    console.error(err);
-    return withCors(jsonResponse({ error: 'Internal error' }, 500), request, env);
+    console.error('Unhandled error in worker', {
+      path: url.pathname,
+      message: err?.message,
+      stack: err?.stack,
+    });
+    return withCors(
+      jsonResponse({ error: 'Internal error', reason: err?.message || 'unknown' }, 500),
+      request,
+      env
+    );
   }
 }
 
@@ -194,38 +251,132 @@ async function callOpenRouterExplain(summary, picks, env) {
   return callOpenRouterChat(messages, env, { max_tokens: 220, temperature: 0.4 });
 }
 
-// Classement IA du TOP 3 à partir de la shortlist.
-async function callOpenRouterRank(userProfile, candidates, env) {
-  const prompt = buildRankPrompt(userProfile, candidates);
+// IA : à partir du TOP 10 des jeux les plus joués, propose 3 nouveaux jeux (par titre).
+async function callOpenRouterRank(topGames, env, mode = 'standard') {
+  const prompt = buildRankPrompt(topGames, mode);
+
+  console.log('[/api/llm/rank] PROMPT ===');
+  console.log(prompt.slice(0, 2000));
+
   const messages = [
     {
       role: 'system',
       content:
-        'Tu es un moteur de recommandation de jeux Steam. Tu reçois un profil joueur et une liste de candidats et tu renvoies uniquement un JSON valide avec les 3 meilleurs jeux classés par compatibilité (0-100). Respecte les filtres et le budget. N’invente aucun appid qui n’est pas dans la liste.',
+        "Tu es un expert en recommandations de jeux vidéo STEAM. " +
+        "On te donne la liste des jeux les plus joués par un joueur (titre, heures, succès, tags). " +
+        "Tu dois proposer exactement 3 AUTRES jeux Steam (pas déjà dans la liste) qui ont de fortes chances de lui plaire.",
     },
     { role: 'user', content: prompt },
   ];
-  const raw = await callOpenRouterChat(messages, env, { max_tokens: 260, temperature: 0.3 });
-  const parsed = parseJsonFromText(raw);
-  const appidSet = new Set(candidates.map((c) => Number(c.appid)));
+
+  let raw;
+  try {
+    raw = await callOpenRouterChat(messages, env, { max_tokens: 220, temperature: 0.4 });
+    console.log('[/api/llm/rank] RAW OUTPUT FULL ===');
+    console.log(raw);  
+  } catch (err) {
+    console.error('[/api/llm/rank] error from callOpenRouterChat', {
+      message: err?.message,
+      stack: err?.stack,
+    });
+    throw err;
+  }
+
+  let parsed;
+  try {
+    parsed = parseJsonFromText(raw);
+    console.log('[/api/llm/rank] PARSED JSON ===');
+    console.log(JSON.stringify(parsed).slice(0, 2000));
+  } catch (err) {
+    console.error('[/api/llm/rank] parseJsonFromText failed', {
+      message: err?.message,
+      stack: err?.stack,
+      rawPreview: raw.slice(0, 2000),
+    });
+    throw err;
+  }
+
   const picks = Array.isArray(parsed?.picks) ? parsed.picks : [];
+
   const cleaned = picks
+    .slice(0, 3)
     .map((p) => ({
-      appid: Number(p.appid),
-      compatibility: Math.max(0, Math.min(100, Math.round(Number(p.compatibility) || 0))),
+      title: String(p.title || '').trim(),
+      reason: String(p.reason || '').trim(),
     }))
-    .filter((p) => appidSet.has(p.appid))
-    .slice(0, 3);
-  if (!cleaned.length) throw new Error('LLM ranking returned no picks');
+    .filter((p) => p.title.length > 0);
+
+  console.log('[/api/llm/rank] CLEANED PICKS ===', JSON.stringify(cleaned));
+
+  if (!cleaned.length) {
+    throw new Error('LLM ranking returned no picks');
+  }
+
   return cleaned;
+}
+
+// Petit helper pour extraire du texte quelle que soit la forme de la réponse OpenRouter
+function extractTextFromOpenRouter(json) {
+  const choice = json?.choices?.[0];
+  if (!choice) return null;
+
+  const message = choice.message || choice.delta || choice;
+
+  // 1) Cas classique : content est une string non vide
+  if (typeof message?.content === 'string' && message.content.trim().length > 0) {
+    return message.content;
+  }
+
+  // 2) Cas "multi-part" : content est un tableau de morceaux
+  if (Array.isArray(message?.content)) {
+    const parts = message.content
+      .map((p) => {
+        if (!p) return '';
+        if (typeof p === 'string') return p;
+        if (typeof p.text === 'string') return p.text;
+        if (typeof p.content === 'string') return p.content;
+        return '';
+      })
+      .filter((s) => typeof s === 'string' && s.trim().length > 0);
+
+    if (parts.length) {
+      return parts.join('\n');
+    }
+  }
+
+  // 3) Spécifique DeepSeek R1 + OpenRouter :
+  //    la vraie réponse se retrouve parfois dans `reasoning`
+  if (typeof message?.reasoning === 'string' && message.reasoning.trim().length > 0) {
+    return message.reasoning;
+  }
+
+  // 4) Fallbacks ultra-safe
+  if (typeof message === 'string' && message.trim().length > 0) {
+    return message;
+  }
+  if (typeof choice.text === 'string' && choice.text.trim().length > 0) {
+    return choice.text;
+  }
+  if (typeof json.output_text === 'string' && json.output_text.trim().length > 0) {
+    return json.output_text;
+  }
+
+  return null;
 }
 
 async function callOpenRouterChat(messages, env, { max_tokens = 220, temperature = 0.4 } = {}) {
   if (!env.OPENROUTER_API_KEY) throw new Error('OPENROUTER_API_KEY missing');
-  const freeModel = 'tngtech/deepseek-r1t2-chimera:free';
+
+  const freeModel = 'meta-llama/llama-3.3-70b-instruct:free';
   const paidModel = 'deepseek/deepseek-r1';
 
   const attempt = async (model) => {
+    console.log('[OpenRouter] calling model', model, {
+      max_tokens,
+      temperature,
+      msgCount: messages?.length || 0,
+    });
+
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -241,22 +392,35 @@ async function callOpenRouterChat(messages, env, { max_tokens = 220, temperature
         temperature,
       }),
     });
+
+    console.log('[OpenRouter] HTTP status', res.status);
+
     if (!res.ok) {
       const text = await res.text();
+      console.error('[OpenRouter] error body', text.slice(0, 400));
       const error = new Error(`LLM error ${res.status}: ${text}`);
       error.status = res.status;
       throw error;
     }
+
     const json = await res.json();
-    const content = json?.choices?.[0]?.message?.content;
-    if (!content) throw new Error('LLM empty response');
+    console.log('[OpenRouter] raw json keys', Object.keys(json || {}));
+    console.log('[OpenRouter] first choice snapshot', JSON.stringify(json?.choices?.[0] || {}).slice(0, 400));
+
+    const content = extractTextFromOpenRouter(json);
+    if (!content) {
+      console.error('OpenRouter: unexpected response shape (no content)', JSON.stringify(json).slice(0, 400));
+      throw new Error('LLM empty response');
+    }
+
+    console.log('[OpenRouter] extracted content preview', content.slice(0, 200));
     return content.trim();
   };
 
   try {
     return await attempt(freeModel);
   } catch (err) {
-    console.warn('Free model failed, retrying paid', err?.message);
+    console.warn('[OpenRouter] free model failed, retrying paid', err?.message);
     if (err?.status === 429 || err?.status === 403 || err?.status === 402) {
       return await attempt(paidModel);
     }
@@ -274,43 +438,76 @@ function buildExplainPrompt(summary, picks) {
   return `${summary}\nExplique le TOP 3 en restant factuel, positif mais sobre. Structure en 3 puces courtes.\n${lines.join('\n')}`;
 }
 
-function buildRankPrompt(userProfile, candidates) {
-  const tagLine = (userProfile?.fav_tags || []).join(', ') || 'n/a';
-  const filterLine = JSON.stringify(userProfile?.filters || {});
-  const budgetLine = userProfile?.budget_max ? `${userProfile.budget_max}€` : 'non précisé';
-  const playLines = (userProfile?.playtime_top || [])
-    .slice(0, 8)
-    .map((g) => `- ${g.name} (${g.hours}h) tags: ${(g.tags || []).join(', ') || 'n/a'} ach:${g.achievement_ratio ?? 'n/a'}%`)
+function buildRankPrompt(topGames, mode = 'standard') {
+  const lines = topGames
+    .slice(0, 10)
+    .map((g, idx) => {
+      const name = g.name || g.title || 'Jeu inconnu';
+      const hours = g.hours || g.playtime_hours || 0;
+      const ach = g.achievement_ratio ?? g.achievements_ratio ?? null;
+      const tags = (g.tags || []).join(', ') || 'n/a';
+
+      return `${idx + 1}. ${name} — ${hours}h jouées — succès: ${ach ?? 'n/a'}% — tags: ${tags}`;
+    })
     .join('\n');
-  const candidateLines = candidates
-    .map(
-      (c, idx) =>
-        `${idx + 1}. ${c.name} (appid ${c.appid}) | tags: ${(c.tags || []).join(', ') || 'n/a'} | genres: ${(c.genres || []).join(', ') || 'n/a'} | prix: ${c.price ?? 0} | avis: ${c.review_ratio ?? 'n/a'} (${c.total_reviews || 0} reviews) | compat_hint: ${c.compatibility_hint ?? 'n/a'}`
-    )
-    .join('\n');
-  return `Profil joueur : tags dominants ${tagLine}. Filtres: ${filterLine}. Budget max: ${budgetLine}.
-Jeux les plus joués:
-${playLines}
-Candidats (ne choisis que parmi ces appids):
-${candidateLines}
-Retourne uniquement un JSON valide: {"picks":[{"appid":123,"compatibility":96},{"appid":456,"compatibility":90},{"appid":789,"compatibility":84}]}`;
+
+  const sharedConstraints =
+    'Contraintes :\n' +
+    '- Les jeux doivent être disponibles sur Steam (pas de jeux inventés, pas de DLC, pas de démos).\n' +
+    '- Ne répète aucun des titres déjà présents dans la liste.\n' +
+    '- Reste factuel et neutre (pas de superlatifs abusifs).\n\n' +
+    'Réponds UNIQUEMENT en JSON strict, sans texte autour, au format :\n' +
+    '{\n' +
+    '  "picks": [\n' +
+    '    { "title": "Nom du jeu 1", "reason": "Courte explication en français (1 phrase)." },\n' +
+    '    { "title": "Nom du jeu 2", "reason": "Courte explication en français (1 phrase)." },\n' +
+    '    { "title": "Nom du jeu 3", "reason": "Courte explication en français (1 phrase)." }\n' +
+    '  ]\n' +
+    '}\n' +
+    'N’ajoute AUCUN autre champ, aucun commentaire, aucun texte hors du JSON.';
+
+  if (mode === 'surprise') {
+    return (
+      'Voici la liste des jeux Steam les plus joués par ce joueur :\n' +
+      lines +
+      '\n\n' +
+      'Objectif : propose EXACTEMENT 3 autres jeux Steam (non présents dans la liste) qui sont plutôt des hidden gems : bien notés, cohérents avec ses goûts, mais pas des AAA ultra connus. Le but est de surprendre avec des découvertes plausibles.\n\n' +
+      sharedConstraints
+    );
+  }
+
+  return (
+    'Voici la liste des jeux Steam les plus joués par ce joueur :\n' +
+    lines +
+    '\n\n' +
+    'Objectif : propose EXACTEMENT 3 autres jeux Steam (qui ne sont pas déjà dans la liste ci-dessus) qui ont de très grandes chances de lui plaire en restant proche de ses préférences (compétitif, coop, tags dominants...).\n\n' +
+    sharedConstraints
+  );
 }
 
 function parseJsonFromText(text) {
   const trimmed = text.trim();
+
   try {
+    // Cas où le modèle respecte bien "UNIQUEMENT JSON"
     return JSON.parse(trimmed);
   } catch (err) {
+    // On tente de récupérer le premier bloc {...}
     const match = trimmed.match(/\{[\s\S]*\}/);
     if (match) {
       try {
         return JSON.parse(match[0]);
-      } catch (e) {
-        // fallthrough
+      } catch (err2) {
+        // On log aussi ici pour être sûr
+        console.error('[parseJsonFromText] inner JSON parse failed, raw snippet =', trimmed.slice(0, 2000));
       }
     }
+
+    // 🔥 Erreur enrichie avec un bout de la vraie réponse du modèle
+    throw new Error(
+      'LLM JSON parse failed. Raw snippet: ' + trimmed.slice(0, 2000)
+    );
   }
-  throw new Error('LLM JSON parse failed');
 }
 
 async function hashPayload(payload) {

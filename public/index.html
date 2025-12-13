@@ -4,7 +4,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Steam Recos | DeepSeek R1 Proxy</title>
+    <title>Steam Recos | IA</title>
     <link rel="stylesheet" href="./assets/styles.css" />
   </head>
   <body>
@@ -34,7 +34,7 @@
           <p class="eyebrow">Recommandations Steam</p>
           <h1>Entre ton SteamID64, on s’occupe du reste.</h1>
           <p class="muted">
-            70% pertinence + 30% découverte contrôlée. Explications par DeepSeek R1, proxy Cloudflare Worker.
+            70% pertinence + 30% découverte contrôlée. Suggestions générées par l’IA via proxy Cloudflare Worker.
           </p>
           <div class="input-group">
             <input id="steamIdInput" type="text" inputmode="numeric" placeholder="7656119..." />
@@ -78,7 +78,7 @@
         </div>
       </section>
 
-      <section class="section">
+      <section class="section" id="reco-results">
         <header class="section-header">
           <div>
             <p class="eyebrow">Résultat</p>
@@ -91,6 +91,9 @@
         </header>
         <div id="results" class="grid results-grid"></div>
         <article id="explanation" class="explanation" hidden></article>
+        <div class="reroll-wrap">
+          <button id="rerollBtn" class="ghost" hidden>🔁 Essayer d’autres jeux</button>
+        </div>
       </section>
 
       <section class="section history-cta">
@@ -103,7 +106,7 @@
     </main>
 
     <footer class="footer">
-      <p>Cloudflare Worker proxy · Dataset local · DeepSeek R1 pour le wording</p>
+      <p>Cloudflare Worker proxy · Dataset local · IA pour le wording</p>
     </footer>
 
     <script type="module" src="./assets/app.js"></script>
