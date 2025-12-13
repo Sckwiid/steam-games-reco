@@ -2,15 +2,16 @@ import { fetchDataset, lightweightFingerprint } from './utils.js';
 import { shortlistCandidates, toLlmCandidates, buildUserProfileForLlm, mapAiPicksToGames } from './recommender.js';
 import { getLibrary, getTopAchievements } from './steamClient.js';
 import { initThemeToggle, setStatus, setQueue, renderResults, renderHistory, renderIndieList, setCacheBadge, setLlmBadge, scrollToResults, toggleRerollButton } from './ui.js';
-import { getHistory, saveRecommendation, saveFeedback, getUserId, setCachedRecommendation, getCachedRecommendation, buildRecoKey, canUseReroll, trackReroll } from './storage.js';
+import { getHistory, saveRecommendation, saveFeedback, getUserId, setCachedRecommendation, getCachedRecommendation, buildRecoKey, canUseReroll, trackReroll, getSeenTitles, addSeenTitles } from './storage.js';
 import { fetchQueue, rankCandidates } from './workerClient.js';
-import { saveFeedbackRemote, saveRecommendationRemote, supabaseEnabled } from './supabaseClient.js';
+import { saveFeedbackRemote, saveRecommendationRemote, supabaseEnabled, savePlayerTopGames } from './supabaseClient.js';
 
 const state = {
   dataset: null,
   userId: getUserId(),
-  filters: { quick: [], modes: [], budget: null },
+  filters: { quick: [], modes: [], budgetType: 'custom', budgetQuickValue: null, budgetMin: 0, budgetMax: 30 },
   priceMax: 30,
+  priceMaxDefault: 60,
   lastConfig: null,
 };
 
@@ -46,17 +47,31 @@ function bindFilters() {
   );
   document.querySelectorAll('[data-budget]').forEach((btn) =>
     btn.addEventListener('click', () => {
+      const slider = document.getElementById('priceSlider');
+      const valEl = document.getElementById('priceValue');
       document.querySelectorAll('[data-budget]').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
-      state.filters.budget = btn.dataset.budget;
+      state.filters.budgetType = 'quick';
+      state.filters.budgetQuickValue = btn.dataset.budget;
+      state.filters.budgetMin = 0;
+      state.filters.budgetMax = state.priceMaxDefault;
+      state.priceMax = state.priceMaxDefault;
+      if (slider) slider.value = state.priceMaxDefault;
+      if (valEl) valEl.textContent = `${state.priceMaxDefault}€`;
     })
   );
   const slider = document.getElementById('priceSlider');
   const valEl = document.getElementById('priceValue');
   if (slider && valEl) {
+    state.priceMaxDefault = Number(slider.max || state.priceMaxDefault);
     slider.addEventListener('input', () => {
       state.priceMax = Number(slider.value);
       valEl.textContent = `${slider.value}€`;
+      state.filters.budgetType = 'custom';
+      state.filters.budgetQuickValue = null;
+      state.filters.budgetMin = 0;
+      state.filters.budgetMax = state.priceMax;
+      document.querySelectorAll('[data-budget]').forEach((b) => b.classList.remove('active'));
     });
   }
 }
@@ -98,13 +113,25 @@ async function runRecommendation({ mode = 'standard', forceReroll = false }) {
     const dataset = await loadDataset();
     setStatus('Récupération de ta bibliothèque Steam…', { loading: true });
 
-    const cacheKey = buildRecoKey({ steamid, mode, filters: state.filters, priceMax: state.priceMax });
+    const cacheKey = buildRecoKey({
+      steamid,
+      mode,
+      filters: state.filters,
+      priceMax: state.priceMax,
+      budget: {
+        type: state.filters.budgetType,
+        quickValue: state.filters.budgetQuickValue,
+        min: state.filters.budgetMin,
+        max: state.filters.budgetMax ?? state.priceMax,
+      },
+    });
     const cached = !forceReroll ? getCachedRecommendation(cacheKey) : null;
     if (cached) {
-      renderResults(cached.items, handleFeedback);
+      renderResults(cached.items, handleFeedback, mode);
       setCacheBadge(true);
       setLlmBadge(true);
       setStatus('Résultat issu du cache (24h).', { loading: false });
+      addSeenTitles(cacheKey, (cached.items || []).map((r) => r.name));
       state.lastConfig = { steamid, mode, cacheKey };
       toggleRerollButton(true);
       scrollToResults();
@@ -129,19 +156,29 @@ async function runRecommendation({ mode = 'standard', forceReroll = false }) {
       userId: userFingerprint,
     });
 
-    if (!shortlist.length) throw new Error('Aucune recommandation trouvée avec ces filtres.');
-
     const userProfile = buildUserProfileForLlm(dataset, library, achievements, state.filters, state.priceMax);
+    if (supabaseEnabled()) {
+      savePlayerTopGames(steamid, userProfile.playtime_top).catch((err) => console.warn('Supabase top games failed', err));
+    }
+
+    const filtersSummary = buildFiltersSummary(state.filters, state.priceMax);
+    const bannedTitles = getSeenTitles(cacheKey);
 
     setStatus('Classement par l’IA…', { loading: true });
-    const aiPicks = await rankCandidates(userProfile, toLlmCandidates(shortlist), state.userId, mode);
-    const recos = mapAiPicksToGames(aiPicks, dataset).slice(0, 3);
+    const aiPicks = await rankCandidates(userProfile, toLlmCandidates(shortlist), state.userId, mode, {
+      filtersSummary,
+      bannedTitles,
+      isSurprise: mode === 'surprise',
+    });
+    let recos = mapAiPicksToGames(aiPicks, dataset);
+    recos = applyClientFilters(recos, state.filters, state.priceMax).slice(0, 3);
 
     if (!recos.length) {
       throw new Error("L'IA n’a pas trouvé de jeux correspondants. Essaie avec moins de filtres ou un budget plus large.");
     }
 
-    renderResults(recos, handleFeedback);
+    addSeenTitles(cacheKey, recos.map((r) => r.name));
+    renderResults(recos, handleFeedback, mode);
     setLlmBadge(true);
 
     setCachedRecommendation(cacheKey, { items: recos, explanation: '' });
@@ -168,6 +205,8 @@ function persistHistory(steamid, recos, surprise) {
     filters: state.filters,
     priceMax: state.priceMax,
     surprise,
+    mode: surprise ? 'surprise' : 'normal',
+    picks: recos.map((r) => ({ appid: r.appid, title: r.name, reason: r.aiReason, compatibility: r.compatibility })),
   });
   if (supabaseEnabled()) {
     saveRecommendationRemote({
@@ -243,9 +282,69 @@ function handleReroll() {
   const usage = canUseReroll(cacheKey);
   if (!usage.allowed) {
     setStatus('Tu as atteint la limite de 3 rerolls pour cette configuration aujourd’hui.', { loading: false });
+    const btn = document.getElementById('rerollBtn');
+    if (btn) btn.disabled = true;
     return;
   }
   trackReroll(cacheKey);
   setStatus('Nouveau tirage IA en cours…', { loading: true });
   runRecommendation({ mode, forceReroll: true });
+}
+
+function buildFiltersSummary(filters, priceMax) {
+  const modes = (filters.modes || []).join(', ') || 'non précisé';
+  const tags = (filters.quick || []).join(', ') || 'non précisé';
+  const budget =
+    filters.budgetType === 'quick'
+      ? `Budget rapide : ${filters.budgetQuickValue || 'n/a'}`
+      : `Budget max : ${filters.budgetMax ?? priceMax}€`;
+  return `Modes : ${modes}\nBudget : ${budget}\nTags principaux : ${tags}`;
+}
+
+function applyClientFilters(recos, filters, priceMax) {
+  return recos.filter((g) => {
+    const categories = new Set(g.categories || []);
+    const tags = new Set(g.tags || []);
+    // Modes
+    if (filters.modes?.length) {
+      const modeMap = {
+        solo: 'Single-player',
+        online: 'Online Co-op',
+        local: 'Local Co-op',
+        coop: 'Co-op',
+      };
+      for (const m of filters.modes) {
+        const cat = modeMap[m];
+        if (cat && !categories.has(cat)) return false;
+      }
+    }
+    // Tags quick
+    if (filters.quick?.length) {
+      const map = {
+        fps: 'FPS',
+        f2p: 'Free to Play',
+        coop: 'Co-op',
+        horror: 'Horror',
+        roguelite: 'Rogue-like',
+        indie: 'Indie',
+        adventure: 'Adventure',
+        rpg: 'RPG',
+        simulator: 'Simulation',
+      };
+      for (const q of filters.quick) {
+        const t = map[q];
+        if (t && !tags.has(t) && !categories.has(t)) return false;
+      }
+    }
+    // Budget
+    if (filters.budgetType === 'quick') {
+      const v = filters.budgetQuickValue;
+      if (v === '0' && (g.price || 0) > 0) return false;
+      if (v === '10' && (g.price || 0) > 10) return false;
+      if (v === '20' && (g.price || 0) > 20) return false;
+    } else {
+      if ((g.price || 0) > (filters.budgetMax ?? priceMax)) return false;
+    }
+    return true;
+  });
 }

@@ -5,6 +5,7 @@ const UID_KEY = 'ssc_uid';
 const CACHE_KEY = 'ssc_cache_v1';
 const PROFILE_CACHE_KEY = 'ssc_profile_cache_v1';
 const REROLL_USAGE_KEY = 'ssc_reroll_usage_v1';
+const SEEN_TITLES_KEY = 'ssc_seen_titles_v1';
 
 export function getUserId() {
   let id = localStorage.getItem(UID_KEY);
@@ -65,13 +66,16 @@ export function getCachedRecommendation(key) {
   return null;
 }
 
-// Construit une clé de cache/reroll par config (steamid + mode + filtres normalisés).
-export function buildRecoKey({ steamid, mode = 'standard', filters = {}, priceMax }) {
+// Clé de reco par config : steamid + mode + filtres normalisés (tags/modes/budget).
+export function buildRecoKey({ steamid, mode = 'standard', filters = {}, priceMax, budget }) {
+  const uniq = (arr = []) => Array.from(new Set(arr));
   const normalized = {
-    quick: [...(filters.quick || [])].sort(),
-    modes: [...(filters.modes || [])].sort(),
-    budget: filters.budget || null,
-    priceMax: priceMax ?? null,
+    quick: uniq(filters.quick || []).sort(),
+    modes: uniq(filters.modes || []).sort(),
+    budgetType: budget?.type || filters.budgetType || null,
+    budgetQuickValue: budget?.quickValue || filters.budgetQuickValue || null,
+    budgetMin: budget?.min ?? filters.budgetMin ?? 0,
+    budgetMax: budget?.max ?? priceMax ?? filters.priceMax ?? null,
   };
   return `reco:${steamid}:${mode}:${JSON.stringify(normalized)}`;
 }
@@ -100,6 +104,29 @@ export function trackReroll(recoKey) {
   }
   localStorage.setItem(REROLL_USAGE_KEY, JSON.stringify(usage));
   return usage[recoKey];
+}
+
+// Gestion des titres déjà vus pour une config (TTL 24h).
+export function getSeenTitles(recoKey) {
+  const cache = readCache(SEEN_TITLES_KEY);
+  const entry = cache[recoKey];
+  if (entry && entry.expires > Date.now()) return entry.titles || [];
+  return [];
+}
+
+export function addSeenTitles(recoKey, titles = []) {
+  if (!titles.length) return;
+  const cache = readCache(SEEN_TITLES_KEY);
+  const existing = cache[recoKey];
+  const current = existing?.titles || [];
+  const merged = new Map();
+  current.forEach((t) => merged.set(t.toLowerCase(), t));
+  titles
+    .map((t) => (t || '').toString().trim())
+    .filter(Boolean)
+    .forEach((t) => merged.set(t.toLowerCase(), t));
+  cache[recoKey] = { titles: Array.from(merged.values()).slice(0, 100), expires: Date.now() + ONE_DAY_MS };
+  localStorage.setItem(SEEN_TITLES_KEY, JSON.stringify(cache));
 }
 
 function readCache(key) {

@@ -117,7 +117,7 @@ async function handleRequest(request, env, ctx) {
       }
 
       const body = await request.json().catch(() => ({}));
-      const { userProfile, mode = 'standard' } = body || {};
+      const { userProfile, mode = 'standard', filtersSummary = '', bannedTitles = [], isSurprise = false } = body || {};
 
       const topGames = Array.isArray(userProfile?.playtime_top)
         ? userProfile.playtime_top.slice(0, 10)
@@ -127,6 +127,8 @@ async function handleRequest(request, env, ctx) {
         hasProfile: !!userProfile,
         topGamesCount: topGames.length,
         mode,
+        filtersSummaryLen: (filtersSummary || '').length,
+        banned: Array.isArray(bannedTitles) ? bannedTitles.length : 0,
       });
 
       if (!topGames.length) {
@@ -135,7 +137,7 @@ async function handleRequest(request, env, ctx) {
       }
 
       try {
-        const picks = await callOpenRouterRank(topGames, env, mode);
+        const picks = await callOpenRouterRank(topGames, env, mode, { filtersSummary, bannedTitles, isSurprise });
         console.log('[/api/llm/rank] LLM picks (titles)', picks);
         return withCors(jsonResponse({ picks }), request, env);
       } catch (err) {
@@ -252,8 +254,10 @@ async function callOpenRouterExplain(summary, picks, env) {
 }
 
 // IA : à partir du TOP 10 des jeux les plus joués, propose 3 nouveaux jeux (par titre).
-async function callOpenRouterRank(topGames, env, mode = 'standard') {
-  const prompt = buildRankPrompt(topGames, mode);
+async function callOpenRouterRank(topGames, env, mode = 'standard', { filtersSummary = '', bannedTitles = [], isSurprise = false } = {}) {
+  const prompt = mode === 'surprise' || isSurprise
+    ? buildSurprisePrompt(topGames, filtersSummary, bannedTitles)
+    : buildRankPrompt(topGames, filtersSummary, bannedTitles);
 
   console.log('[/api/llm/rank] PROMPT ===');
   console.log(prompt.slice(0, 2000));
@@ -438,7 +442,7 @@ function buildExplainPrompt(summary, picks) {
   return `${summary}\nExplique le TOP 3 en restant factuel, positif mais sobre. Structure en 3 puces courtes.\n${lines.join('\n')}`;
 }
 
-function buildRankPrompt(topGames, mode = 'standard') {
+function buildRankPrompt(topGames, filtersSummary = '', bannedTitles = []) {
   const lines = topGames
     .slice(0, 10)
     .map((g, idx) => {
@@ -466,22 +470,24 @@ function buildRankPrompt(topGames, mode = 'standard') {
     '}\n' +
     'N’ajoute AUCUN autre champ, aucun commentaire, aucun texte hors du JSON.';
 
-  if (mode === 'surprise') {
-    return (
-      'Voici la liste des jeux Steam les plus joués par ce joueur :\n' +
-      lines +
-      '\n\n' +
-      'Objectif : propose EXACTEMENT 3 autres jeux Steam (non présents dans la liste) qui sont plutôt des hidden gems : bien notés, cohérents avec ses goûts, mais pas des AAA ultra connus. Le but est de surprendre avec des découvertes plausibles.\n\n' +
-      sharedConstraints
-    );
-  }
-
   return (
     'Voici la liste des jeux Steam les plus joués par ce joueur :\n' +
     lines +
     '\n\n' +
     'Objectif : propose EXACTEMENT 3 autres jeux Steam (qui ne sont pas déjà dans la liste ci-dessus) qui ont de très grandes chances de lui plaire en restant proche de ses préférences (compétitif, coop, tags dominants...).\n\n' +
+    (filtersSummary ? `Contexte des filtres choisis par le joueur :\n${filtersSummary}\n\n` : '') +
+    (Array.isArray(bannedTitles) && bannedTitles.length
+      ? 'Ne propose STRICTEMENT aucun des jeux suivants (déjà recommandés récemment) :\n- ' + bannedTitles.slice(0, 20).join('\n- ') + '\n\n'
+      : '') +
     sharedConstraints
+  );
+}
+
+function buildSurprisePrompt(topGames, filtersSummary = '', bannedTitles = []) {
+  const base = buildRankPrompt(topGames, filtersSummary, bannedTitles);
+  return base.replace(
+    'Objectif : propose EXACTEMENT 3 autres jeux Steam (qui ne sont pas déjà dans la liste ci-dessus) qui ont de très grandes chances de lui plaire en restant proche de ses préférences (compétitif, coop, tags dominants...).',
+    'Objectif : propose EXACTEMENT 3 autres jeux Steam (non présents dans la liste) qui sont plutôt des hidden gems : bien notés, cohérents avec ses goûts, mais pas des AAA ultra connus. Le but est de surprendre avec des découvertes plausibles et cohérentes.'
   );
 }
 

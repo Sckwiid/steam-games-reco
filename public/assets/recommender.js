@@ -219,9 +219,14 @@ function matchesFilters(game, filters = {}) {
     }
   }
 
-  if (filters.budget === '0' && (game.price || 0) > 0) return false;
-  if (filters.budget === '10' && (game.price || 0) > 10) return false;
-  if (filters.budget === '20' && (game.price || 0) > 20) return false;
+  if (filters.budgetType === 'quick') {
+    if (filters.budgetQuickValue === '0' && (game.price || 0) > 0) return false;
+    if (filters.budgetQuickValue === '10' && (game.price || 0) > 10) return false;
+    if (filters.budgetQuickValue === '20' && (game.price || 0) > 20) return false;
+  } else {
+    const max = filters.budgetMax ?? filters.priceMax;
+    if (max != null && (game.price || 0) > max) return false;
+  }
 
   return true;
 }

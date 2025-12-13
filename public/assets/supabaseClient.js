@@ -44,3 +44,23 @@ export async function saveFeedbackRemote(payload) {
 export function supabaseEnabled() {
   return enabled();
 }
+
+// Table Supabase attendue : player_top_games (steamid text, snapshot_at timestamptz, top_games jsonb)
+export async function savePlayerTopGames(steamid, topGames) {
+  if (!enabled()) return { ok: false, reason: 'disabled' };
+  try {
+    const res = await fetch(`${cfg.url}/rest/v1/player_top_games`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({
+        steamid,
+        snapshot_at: new Date().toISOString(),
+        top_games: topGames,
+      }),
+    });
+    return { ok: res.ok, status: res.status };
+  } catch (err) {
+    console.warn('savePlayerTopGames failed', err);
+    return { ok: false, reason: err.message };
+  }
+}

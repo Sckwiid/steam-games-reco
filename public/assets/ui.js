@@ -40,14 +40,17 @@ export function setLlmBadge(visible) {
 
 export function toggleRerollButton(visible) {
   const btn = document.getElementById('rerollBtn');
-  if (btn) btn.hidden = !visible;
+  if (btn) {
+    btn.hidden = !visible;
+    btn.disabled = false;
+  }
 }
 
 export function scrollToResults() {
   document.getElementById('reco-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-export function renderResults(results = [], onFeedback) {
+export function renderResults(results = [], onFeedback, mode) {
   const container = document.getElementById('results');
   const empty = document.createElement('p');
   empty.textContent = 'Aucune recommandation pour le moment.';
@@ -95,6 +98,12 @@ export function renderResults(results = [], onFeedback) {
       tags.appendChild(pill);
     });
     card.appendChild(title);
+    if (mode === 'surprise') {
+      const note = document.createElement('p');
+      note.className = 'muted small';
+      note.textContent = 'Sélection surprise (focus jeux moins connus).';
+      card.appendChild(note);
+    }
     card.appendChild(meta);
     card.appendChild(tags);
     if (item.aiReason) {
@@ -152,12 +161,30 @@ export function renderHistory(list = [], onFeedback) {
   list.forEach((entry) => {
     const card = document.createElement('article');
     card.className = 'card';
+    const dateStr = entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '';
+    const filters = entry.filters || {};
+    const tags = (filters.quick || []).slice(0, 4).join(', ') || 'n/a';
+    const modes = (filters.modes || []).join(', ') || 'n/a';
+    const budget =
+      filters.budgetType === 'quick'
+        ? `Budget: ${filters.budgetQuickValue || 'n/a'}`
+        : `Budget: ${filters.budgetMin ?? 0}€ - ${filters.budgetMax ?? 'n/a'}€`;
+    const picks = entry.picks || [];
+    const primary = entry.primary || picks[0] || {};
+    const alt1 = entry.alt1 || picks[1] || {};
+    const alt2 = entry.alt2 || picks[2] || {};
     card.innerHTML = `
-      <h3>${entry.primary?.name || 'Inconnu'} <span class="pill success">${entry.primary?.compatibility || '?'}%</span></h3>
-      <p class="muted small">${new Date(entry.createdAt).toLocaleString()}</p>
+      <h3>${primary?.name || primary?.title || 'Inconnu'} <span class="pill success">${primary?.compatibility || '?'}%</span></h3>
+      <p class="muted small">Recommandé le ${dateStr}</p>
       <div class="tagline">
-        <span class="badge">Alt: ${entry.alt1?.name || '-'}</span>
-        <span class="badge">Alt: ${entry.alt2?.name || '-'}</span>
+        <span class="badge">${entry.mode === 'surprise' ? 'Surprise' : 'Standard'}</span>
+        <span class="badge">Modes: ${modes}</span>
+        <span class="badge">${budget}</span>
+        <span class="badge">Tags: ${tags}</span>
+      </div>
+      <div class="tagline">
+        <span class="badge">Alt: ${alt1?.name || alt1?.title || '-'}</span>
+        <span class="badge">Alt: ${alt2?.name || alt2?.title || '-'}</span>
       </div>
     `;
     const fb = document.createElement('div');

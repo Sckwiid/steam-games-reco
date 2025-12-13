@@ -73,11 +73,11 @@ export async function fetchExplanation(summary, picks, userId) {
   return res.explanation;
 }
 
-export async function rankCandidates(userProfile, candidates, userId, mode = 'standard') {
+export async function rankCandidates(userProfile, candidates, userId, mode = 'standard', extra = {}) {
   const res = await request('/api/llm/rank', {
     method: 'POST',
     headers: { 'x-user-id': userId },
-    body: JSON.stringify({ userProfile, candidates, mode }),
+    body: JSON.stringify({ userProfile, candidates, mode, ...extra }),
   });
   return res.picks || [];
 }
