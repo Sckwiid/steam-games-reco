@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<script src="./assets/config.js"></script>
+<html lang="fr" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Steam Recos | IA</title>
+    <link rel="stylesheet" href="./assets/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="dot"></span>
+        <span>Steam Scout</span>
+      </div>
+      <nav>
+        <a href="./indie.html" class="ghost">Indie Spotlight</a>
+        <a href="./history.html" class="ghost">Historique</a>
+        <button id="themeToggle" class="ghost">☾</button>
+      </nav>
+    </header>
+
+    <main class="layout">
+      <section class="banner">
+        <div>
+          <p class="eyebrow">Indie Spotlight</p>
+          <p>Découvre des pépites indés bien notées ou prometteuses.</p>
+        </div>
+        <a class="pill" href="./indie.html">Voir la liste →</a>
+      </section>
+
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Recommandations Steam</p>
+          <h1>Entre ton SteamID64, on s’occupe du reste.</h1>
+          <p class="muted">
+            70% pertinence + 30% découverte contrôlée. Suggestions générées par l’IA via proxy Cloudflare Worker.
+          </p>
+          <div class="input-group">
+            <input id="steamIdInput" type="text" inputmode="numeric" placeholder="7656119..." />
+            <button id="recommendBtn">Recommander</button>
+            <button id="surpriseBtn" class="ghost">Me surprendre</button>
+          </div>
+          <p id="steamHint" class="hint">Ton SteamID64 est sur ton URL de profil public.</p>
+          <div class="chips" id="quickFilters">
+            <button data-filter="fps">FPS</button>
+            <button data-filter="f2p">F2P</button>
+            <button data-filter="coop">Coop</button>
+            <button data-filter="horror">Horror</button>
+            <button data-filter="roguelite">Rogue-lite</button>
+            <button data-filter="indie">Indé</button>
+            <button data-filter="adventure">Aventure</button>
+            <button data-filter="rpg">RPG</button>
+            <button data-filter="simulator">Simulator</button>
+          </div>
+          <div class="chips subchips" aria-label="Options avancées">
+            <span>Modes :</span>
+            <button data-mode="online">Coop online</button>
+            <button data-mode="local">Coop local</button>
+            <button data-mode="solo">Solo</button>
+          </div>
+          <div class="chips budget">
+            <span>Budget :</span>
+            <button data-budget="0">Gratuit</button>
+            <button data-budget="10">&lt;10€</button>
+            <button data-budget="20">&lt;20€</button>
+            <label class="slider">
+              Prix max
+              <input id="priceSlider" type="range" min="0" max="60" step="1" value="30" />
+              <span id="priceValue">30€</span>
+            </label>
+          </div>
+        </div>
+        <div class="panel" id="statusPanel">
+          <p id="statusText">Prêt à analyser ta bibliothèque.</p>
+          <div class="loader" hidden></div>
+          <p class="muted small" id="queueInfo"></p>
+        </div>
+      </section>
+
+      <section class="section" id="reco-results">
+        <header class="section-header">
+          <div>
+            <p class="eyebrow">Résultat</p>
+            <h2>Top 3 pour toi</h2>
+          </div>
+          <div class="capsules">
+            <span class="pill ghost" id="cacheInfo" hidden>Cache</span>
+            <span class="pill ghost" id="llmInfo" hidden>Explication IA</span>
+          </div>
+        </header>
+        <div id="results" class="grid results-grid"></div>
+        <article id="explanation" class="explanation" hidden></article>
+        <div class="reroll-wrap">
+          <button id="rerollBtn" class="ghost" hidden>🔁 Essayer d’autres jeux</button>
+        </div>
+      </section>
+
+      <section class="section history-cta">
+        <div>
+          <h3>Historique</h3>
+          <p class="muted">Retrouve tes précédentes recommandations. Stocké localement, Supabase optionnel.</p>
+        </div>
+        <a class="pill" href="./history.html">Voir l’historique →</a>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>Cloudflare Worker proxy · Dataset local · IA pour le wording</p>
+    </footer>
+
+    <script type="module" src="./assets/app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+
+  </body>
+</html>
