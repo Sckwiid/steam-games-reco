@@ -7,21 +7,41 @@ export function recommend({ dataset, library, achievements = {}, filters, priceM
 }
 
 // Shortlist pour l'IA : renvoie des candidats scorés (compatibilité calculée localement) limités à N.
-export function shortlistCandidates({ dataset, library, achievements = {}, filters, priceMax, surprise = false, userId, limit = 50 }) {
-  const scored = scoreCandidates({ dataset, library, achievements, filters, priceMax, surprise, userId });
+export function shortlistCandidates({
+  dataset,
+  library,
+  achievements = {},
+  filters,
+  priceMax,
+  surprise = false,
+  userId,
+  limit = 200,
+  bannedTitles = [],
+}) {
+  const scored = scoreCandidates({
+    dataset,
+    library,
+    achievements,
+    filters,
+    priceMax,
+    surprise,
+    userId,
+    bannedTitles,
+  });
   return scored.slice(0, limit);
 }
 
-// Mappe les picks IA (par titre) vers les jeux du dataset.
-export function mapAiPicksToGames(aiPicks, gamesDb) {
-  if (!Array.isArray(aiPicks) || !gamesDb?.length) return [];
+// Mappe les picks IA (par titre) vers les jeux du dataset (idéalement la shortlist).
+export function mapAiPicksToGames(aiPicks, gamesDb, shortlistOnly = null) {
+  const source = shortlistOnly && shortlistOnly.length ? shortlistOnly : gamesDb;
+  if (!Array.isArray(aiPicks) || !source?.length) return [];
   return aiPicks
     .map((pick, idx) => {
       const title = (pick?.title || '').trim();
       if (!title) return null;
       const norm = title.toLowerCase();
-      let game = gamesDb.find((g) => (g.name || '').toLowerCase() === norm);
-      if (!game) game = gamesDb.find((g) => (g.name || '').toLowerCase().includes(norm));
+      let game = source.find((g) => (g.name || '').toLowerCase() === norm);
+      if (!game) game = source.find((g) => (g.name || '').toLowerCase().includes(norm));
       if (!game) return null;
       return {
         ...game,
@@ -34,7 +54,7 @@ export function mapAiPicksToGames(aiPicks, gamesDb) {
 }
 
 // Transforme la shortlist en payload compact pour le LLM.
-export function toLlmCandidates(candidates, limit = 50) {
+export function toLlmCandidates(candidates, limit = 200) {
   return candidates.slice(0, limit).map((g) => ({
     appid: g.appid,
     name: g.name,
@@ -72,18 +92,29 @@ export function buildUserProfileForLlm(dataset, library, achievements, filters, 
   };
 }
 
-function scoreCandidates({ dataset, library, achievements = {}, filters, priceMax, surprise, userId }) {
+function scoreCandidates({ dataset, library, achievements = {}, filters, priceMax, surprise, userId, bannedTitles = [] }) {
   if (!dataset?.length) return [];
   const ownedSet = new Set((library?.games || []).map((g) => g.appid));
+  const topPlayedIds = new Set(
+    [...(library?.games || [])]
+      .filter((g) => g.playtime_forever > 0)
+      .sort((a, b) => b.playtime_forever - a.playtime_forever)
+      .slice(0, 10)
+      .map((g) => g.appid)
+  );
   const topPlayed = getTopPlayed(library, 15);
   const profile = buildProfile(dataset, topPlayed, achievements);
   const candidates = [];
+  const bannedSet = new Set((bannedTitles || []).map((t) => (t || '').toString().toLowerCase()));
 
   const noveltyWeight = surprise ? 0.3 : 0.2; // max 30% influence
   const priceCap = priceMax ?? 60;
 
   for (const game of dataset) {
     if (ownedSet.has(game.appid)) continue;
+    if (topPlayedIds.has(game.appid)) continue;
+    const lowerName = (game.name || '').toLowerCase();
+    if (bannedSet.has(lowerName)) continue;
     if (!passesQualityRules(game)) continue;
     if (!matchesFilters(game, filters)) continue;
     if (game.price > priceCap) continue;
@@ -197,13 +228,22 @@ function matchesFilters(game, filters = {}) {
     rpg: 'RPG',
     simulator: 'Simulation',
   };
-  const tags = new Set(game.tags || []);
-  const categories = new Set(game.categories || []);
+  const tags = new Set((game.tags || []).map((t) => t.toLowerCase()));
+  const categories = new Set((game.categories || []).map((c) => c.toLowerCase()));
 
   if (filters.quick?.length) {
     for (const f of filters.quick) {
       const mapped = map[f];
-      if (mapped && !tags.has(mapped) && !categories.has(mapped)) return false;
+      if (f === 'horror') {
+        // Famille horror : tout tag contenant "horror" ou variantes usuelles.
+        const hasHorror = Array.from(tags).some((t) => t.includes('horror'));
+        if (!hasHorror) return false;
+        continue;
+      }
+      if (mapped) {
+        const lower = mapped.toLowerCase();
+        if (!tags.has(lower) && !categories.has(lower)) return false;
+      }
     }
   }
 
@@ -215,7 +255,7 @@ function matchesFilters(game, filters = {}) {
     };
     for (const m of filters.modes) {
       const mapped = modeMap[m];
-      if (mapped && !categories.has(mapped)) return false;
+      if (mapped && !categories.has(mapped.toLowerCase())) return false;
     }
   }
 

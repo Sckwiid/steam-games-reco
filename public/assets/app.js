@@ -154,7 +154,30 @@ async function runRecommendation({ mode = 'standard', forceReroll = false }) {
       filters: state.filters,
       priceMax: state.priceMax,
       userId: userFingerprint,
+      bannedTitles,
     });
+
+    if (!shortlist.length) {
+      setStatus("Aucun jeu dans le catalogue ne correspond à ces filtres. Essaie avec moins de filtres ou un budget plus large.", { loading: false });
+      return;
+    }
+
+    if (shortlist.length <= 3) {
+      const recosDirect = shortlist.slice(0, 3).map((g, idx) => ({
+        ...g,
+        aiReason: 'Correspond à tes filtres et à ton profil Steam',
+        compatibility: 98 - idx * 3,
+      }));
+      renderResults(recosDirect, handleFeedback, mode);
+      setCachedRecommendation(cacheKey, { items: recosDirect, explanation: '' });
+      persistHistory(steamid, recosDirect, mode === 'surprise');
+      state.lastConfig = { steamid, mode, cacheKey };
+      addSeenTitles(cacheKey, recosDirect.map((r) => r.name));
+      toggleRerollButton(true);
+      scrollToResults();
+      setStatus('Terminé.', { loading: false });
+      return;
+    }
 
     const userProfile = buildUserProfileForLlm(dataset, library, achievements, state.filters, state.priceMax);
     if (supabaseEnabled()) {
@@ -162,16 +185,21 @@ async function runRecommendation({ mode = 'standard', forceReroll = false }) {
     }
 
     const filtersSummary = buildFiltersSummary(state.filters, state.priceMax);
-    const bannedTitles = getSeenTitles(cacheKey);
 
     setStatus('Classement par l’IA…', { loading: true });
-    const aiPicks = await rankCandidates(userProfile, toLlmCandidates(shortlist), state.userId, mode, {
-      filtersSummary,
-      bannedTitles,
-      isSurprise: mode === 'surprise',
-    });
-    let recos = mapAiPicksToGames(aiPicks, dataset);
-    recos = applyClientFilters(recos, state.filters, state.priceMax).slice(0, 3);
+    const aiPicks = await rankCandidates(
+      userProfile,
+      toLlmCandidates(shortlist),
+      state.userId,
+      mode,
+      {
+        filtersSummary,
+        bannedTitles,
+        isSurprise: mode === 'surprise',
+        candidates: toLlmCandidates(shortlist),
+      }
+    );
+    let recos = mapAiPicksToGames(aiPicks, shortlist || dataset, shortlist).slice(0, 3);
 
     if (!recos.length) {
       throw new Error("L'IA n’a pas trouvé de jeux correspondants. Essaie avec moins de filtres ou un budget plus large.");
