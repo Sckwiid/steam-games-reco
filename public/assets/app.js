@@ -147,6 +147,9 @@ async function runRecommendation({ mode = 'standard', forceReroll = false }) {
     const achievements = await getTopAchievements(steamid, topPlayed, state.userId, 12);
 
     setStatus('Préparation shortlist et profil…', { loading: true });
+    const filtersSummary = buildFiltersSummary(state.filters, state.priceMax);
+    const bannedTitles = getSeenTitles(cacheKey);
+
     const shortlist = shortlistCandidates({
       dataset,
       library,
@@ -183,8 +186,6 @@ async function runRecommendation({ mode = 'standard', forceReroll = false }) {
     if (supabaseEnabled()) {
       savePlayerTopGames(steamid, userProfile.playtime_top).catch((err) => console.warn('Supabase top games failed', err));
     }
-
-    const filtersSummary = buildFiltersSummary(state.filters, state.priceMax);
 
     setStatus('Classement par l’IA…', { loading: true });
     const aiPicks = await rankCandidates(
