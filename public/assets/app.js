@@ -159,6 +159,18 @@ async function runRecommendation({ mode = 'standard', forceReroll = false }) {
       userId: userFingerprint,
       bannedTitles,
     });
+    console.log('[reco] shortlist built', {
+      shortlistCount: shortlist.length,
+      activeTags: state.filters.quick,
+      activeModes: state.filters.modes,
+      activeBudget: {
+        type: state.filters.budgetType,
+        quick: state.filters.budgetQuickValue,
+        max: state.filters.budgetMax,
+      },
+      bannedTitlesCount: bannedTitles.length,
+      ownedGamesCount: games.length,
+    });
 
     if (!shortlist.length) {
       setStatus("Aucun jeu dans le catalogue ne correspond à ces filtres. Essaie avec moins de filtres ou un budget plus large.", { loading: false });
@@ -168,7 +180,7 @@ async function runRecommendation({ mode = 'standard', forceReroll = false }) {
     if (shortlist.length <= 3) {
       const recosDirect = shortlist.slice(0, 3).map((g, idx) => ({
         ...g,
-        aiReason: 'Correspond à tes filtres et à ton profil Steam',
+        aiReason: 'Proposition basée sur tes jeux les plus joués',
         compatibility: 98 - idx * 3,
       }));
       renderResults(recosDirect, handleFeedback, mode);
@@ -203,6 +215,7 @@ async function runRecommendation({ mode = 'standard', forceReroll = false }) {
     let recos = mapAiPicksToGames(aiPicks, shortlist || dataset, shortlist).slice(0, 3);
 
     if (!recos.length) {
+      console.log('[reco] no IA picks after mapping', { shortlistCount: shortlist.length, aiPicksCount: aiPicks?.length || 0, mode });
       throw new Error("L'IA n’a pas trouvé de jeux correspondants. Essaie avec moins de filtres ou un budget plus large.");
     }
 

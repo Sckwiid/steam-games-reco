@@ -263,7 +263,7 @@ function matchesFilters(game, filters = {}) {
     if (filters.budgetQuickValue === '0' && (game.price || 0) > 0) return false;
     if (filters.budgetQuickValue === '10' && (game.price || 0) > 10) return false;
     if (filters.budgetQuickValue === '20' && (game.price || 0) > 20) return false;
-  } else {
+  } else if (filters.budgetType === 'custom') {
     const max = filters.budgetMax ?? filters.priceMax;
     if (max != null && (game.price || 0) > max) return false;
   }
