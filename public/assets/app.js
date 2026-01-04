@@ -215,8 +215,17 @@ async function runRecommendation({ mode = 'standard', forceReroll = false }) {
     let recos = mapAiPicksToGames(aiPicks, shortlist || dataset, shortlist).slice(0, 3);
 
     if (!recos.length) {
-      console.log('[reco] no IA picks after mapping', { shortlistCount: shortlist.length, aiPicksCount: aiPicks?.length || 0, mode });
-      throw new Error("L'IA n’a pas trouvé de jeux correspondants. Essaie avec moins de filtres ou un budget plus large.");
+      console.log('[reco] no IA picks after mapping', {
+        shortlistCount: shortlist.length,
+        aiPicksCount: aiPicks?.length || 0,
+        aiTitles: (aiPicks || []).map((p) => p.title),
+      });
+      // Fallback : prendre les 3 premiers de la shortlist (non bannis) pour éviter une UX vide
+      recos = shortlist.slice(0, 3).map((g, idx) => ({
+        ...g,
+        aiReason: 'Ajustement automatique sur la shortlist',
+        compatibility: 95 - idx * 3,
+      }));
     }
 
     addSeenTitles(cacheKey, recos.map((r) => r.name));

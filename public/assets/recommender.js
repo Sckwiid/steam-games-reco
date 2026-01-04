@@ -35,13 +35,27 @@ export function shortlistCandidates({
 export function mapAiPicksToGames(aiPicks, gamesDb, shortlistOnly = null) {
   const source = shortlistOnly && shortlistOnly.length ? shortlistOnly : gamesDb;
   if (!Array.isArray(aiPicks) || !source?.length) return [];
+
+  const catalog = source.map((g) => ({
+    norm: normalizeTitle(g.name),
+    game: g,
+  }));
+  const normMap = new Map();
+  catalog.forEach(({ norm, game }) => {
+    if (norm && !normMap.has(norm)) normMap.set(norm, game);
+  });
+
   return aiPicks
     .map((pick, idx) => {
       const title = (pick?.title || '').trim();
       if (!title) return null;
-      const norm = title.toLowerCase();
-      let game = source.find((g) => (g.name || '').toLowerCase() === norm);
-      if (!game) game = source.find((g) => (g.name || '').toLowerCase().includes(norm));
+      const norm = normalizeTitle(title);
+      let game = normMap.get(norm);
+      if (!game) {
+        game =
+          catalog.find((c) => c.norm && (c.norm.includes(norm) || norm.includes(c.norm)))?.game ||
+          catalog.find((c) => c.norm && c.norm.replace(/\s+/g, '') === norm.replace(/\s+/g, ''))?.game;
+      }
       if (!game) return null;
       return {
         ...game,
@@ -269,6 +283,15 @@ function matchesFilters(game, filters = {}) {
   }
 
   return true;
+}
+
+function normalizeTitle(title) {
+  return (title || '')
+    .toString()
+    .toLowerCase()
+    .replace(/[\u2122®]/g, '') // TM / R
+    .replace(/[^a-z0-9+]+/g, ' ')
+    .trim();
 }
 
 function passesQualityRules(game) {
