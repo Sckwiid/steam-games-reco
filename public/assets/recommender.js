@@ -235,6 +235,7 @@ function matchesFilters(game, filters = {}) {
     fps: 'FPS',
     f2p: 'Free to Play',
     coop: 'Co-op',
+    // horror géré comme famille via includes "horror"/"horreur"
     horror: 'Horror',
     roguelite: 'Rogue-like',
     indie: 'Indie',
@@ -249,11 +250,35 @@ function matchesFilters(game, filters = {}) {
     for (const f of filters.quick) {
       const mapped = map[f];
       if (f === 'horror') {
-        // Famille horror : tout tag contenant "horror" ou variantes usuelles.
-        const hasHorror = Array.from(tags).some((t) => t.includes('horror'));
-        if (!hasHorror) return false;
-        continue;
-      }
+        // Famille horror étendue : tous les tags "horror" + dérivés / synonymes
+        const horrorKeywords = [
+          'horror',
+          'horreur',
+          'psychological horror',
+          'survival horror',
+          'gore',
+          'violent',
+          'lovecraftian',
+          'supernatural',
+          'zombies',
+          'zombie',
+          'vampire',
+          'vampires',
+          'demonic',
+          'demon',
+          'ghost',
+          'monsters',
+          'monster',
+          'cthulhu'
+  ];
+
+  const hasHorror = Array.from(tags).some((t) =>
+    horrorKeywords.some((kw) => t.includes(kw))
+  );
+
+  if (!hasHorror) return false;
+  continue;
+}
       if (mapped) {
         const lower = mapped.toLowerCase();
         if (!tags.has(lower) && !categories.has(lower)) return false;
