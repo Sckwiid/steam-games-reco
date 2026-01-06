@@ -42,6 +42,7 @@ export function mapAiPicksToGames(aiPicks, gamesDb, shortlistOnly = null) {
 
   const catalog = source.map((g) => ({
     norm: normalizeTitle(g.name),
+    tokens: tokenizeTitle(g.name),
     game: g,
   }));
   const normMap = new Map();
@@ -56,9 +57,25 @@ export function mapAiPicksToGames(aiPicks, gamesDb, shortlistOnly = null) {
       const norm = normalizeTitle(title);
       let game = normMap.get(norm);
       if (!game) {
-        game =
-          catalog.find((c) => c.norm && (c.norm.includes(norm) || norm.includes(c.norm)))?.game ||
-          catalog.find((c) => c.norm && c.norm.replace(/\s+/g, '') === norm.replace(/\s+/g, ''))?.game;
+        const tokensPick = tokenizeTitle(title);
+        // Cherche le meilleur overlap de tokens avec la shortlist.
+        let best = null;
+        let bestScore = 0;
+        for (const c of catalog) {
+          const overlap = tokenOverlap(tokensPick, c.tokens);
+          if (overlap > bestScore) {
+            bestScore = overlap;
+            best = c.game;
+          }
+        }
+        if (bestScore >= 0.3) {
+          game = best;
+        } else {
+          // fallback inclusions
+          game =
+            catalog.find((c) => c.norm && (c.norm.includes(norm) || norm.includes(c.norm)))?.game ||
+            catalog.find((c) => c.norm && c.norm.replace(/\s+/g, '') === norm.replace(/\s+/g, ''))?.game;
+        }
       }
       if (!game) return null;
       return {
@@ -251,6 +268,8 @@ function matchesFilters(game, filters = {}) {
   };
   const tags = new Set((game.tags || []).map((t) => t.toString().toLowerCase()));
   const categories = new Set((game.categories || []).map((c) => c.toString().toLowerCase()));
+  const genres = new Set((game.genres || []).map((g) => g.toString().toLowerCase()));
+  const allTags = new Set([...tags, ...categories, ...genres]);
 
   if (filters.quick?.length) {
     for (const f of filters.quick) {
@@ -281,9 +300,8 @@ function matchesFilters(game, filters = {}) {
           'psychological',
           'supernatural horror',
         ];
-        const allTags = [...tags, ...categories];
         // Match si un mot-clé est inclus OU si le tag contient "horror"/"horreur"
-        const hasHorror = allTags.some(
+        const hasHorror = [...allTags].some(
           (t) =>
             horrorKeywords.some((kw) => t.includes(kw)) ||
             t.includes('horror') ||
@@ -294,7 +312,7 @@ function matchesFilters(game, filters = {}) {
       }
       if (mapped) {
         const lower = mapped.toLowerCase();
-        if (!tags.has(lower) && !categories.has(lower)) return false;
+        if (!allTags.has(lower)) return false;
       }
     }
   }
@@ -327,6 +345,8 @@ function normalizeTitle(title) {
   return (title || '')
     .toString()
     .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // accents
     .replace(/[\u2122®]/g, '') // TM / R
     .replace(/[^a-z0-9+]+/g, ' ')
     .trim();
@@ -349,6 +369,21 @@ function reviewScore(game) {
   const total = game.total_reviews ?? 0;
   const volumeFactor = Math.min(1, Math.log10(total + 1) / 3); // 0->1
   return clamp((ratio - 0.5) * 2, 0, 1) * (0.5 + 0.5 * volumeFactor);
+}
+
+function tokenizeTitle(title) {
+  return normalizeTitle(title)
+    .split(' ')
+    .filter(Boolean);
+}
+
+function tokenOverlap(aTokens, bTokens) {
+  if (!aTokens.length || !bTokens.length) return 0;
+  const aSet = new Set(aTokens);
+  const bSet = new Set(bTokens);
+  const common = [...aSet].filter((t) => bSet.has(t)).length;
+  const denom = Math.max(aSet.size, bSet.size);
+  return denom ? common / denom : 0;
 }
 
 function isTooSimilar(a, b) {
