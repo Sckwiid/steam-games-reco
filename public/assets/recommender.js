@@ -140,8 +140,8 @@ function scoreCandidates({ dataset, library, achievements = {}, filters, priceMa
       0.45 * scoreParts.tags +
       0.25 * scoreParts.genres +
       0.1 * scoreParts.categories +
-      0.1 * scoreParts.price +
-      0.1 * scoreParts.review +
+      0.05 * scoreParts.price +
+      0.2 * scoreParts.review +
       novelty;
 
     candidates.push({
@@ -274,6 +274,8 @@ function matchesFilters(game, filters = {}) {
           'cthulhu',
           'dark fantasy',
           'post-apocalyptic',
+          'psychological',
+          'supernatural horror',
         ];
         const allTags = [...tags, ...categories];
         const hasHorror = allTags.some((t) => horrorKeywords.some((kw) => t.includes(kw)));
@@ -323,9 +325,12 @@ function normalizeTitle(title) {
 function passesQualityRules(game) {
   const ratio = game.review_ratio ?? 0;
   const total = game.total_reviews ?? 0;
-  // Filtre plus strict pour limiter le shovelware bas de gamme.
-  if (total >= 50 && ratio < 0.7) return false;
-  if (total >= 10 && ratio < 0.55) return false;
+  // Filtre qualité : évite shovelware et jeux très mal notés
+  if (total >= 200 && ratio < 0.7) return false;
+  if (total >= 50 && ratio < 0.65) return false;
+  if (total >= 10 && ratio < 0.6) return false;
+  // Jeux très peu évalués et ultra cheap : évite les free/0.59€ sans signal
+  if (total < 5 && (game.price || 0) < 1) return false;
   return true;
 }
 
