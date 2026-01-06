@@ -121,8 +121,8 @@ function scoreCandidates({ dataset, library, achievements = {}, filters, priceMa
   const candidates = [];
   const bannedSet = new Set((bannedTitles || []).map((t) => (t || '').toString().toLowerCase()));
 
-  const noveltyWeight = surprise ? 0.3 : 0.2; // max 30% influence
-  const priceCap = priceMax ?? 60;
+    const noveltyWeight = surprise ? 0.3 : 0.2; // max 30% influence
+    const priceCap = priceMax ?? 60;
 
   for (const game of dataset) {
     if (ownedSet.has(game.appid)) continue;
@@ -141,6 +141,7 @@ function scoreCandidates({ dataset, library, achievements = {}, filters, priceMa
       0.25 * scoreParts.genres +
       0.1 * scoreParts.categories +
       0.1 * scoreParts.price +
+      0.1 * scoreParts.review +
       novelty;
 
     candidates.push({
@@ -202,12 +203,14 @@ function computeScoreParts(game, profile, priceCap) {
   const categoryScore = categories.reduce((acc, c) => acc + (profile.categoryWeights[c] || 0), 0);
 
   const priceScore = clamp(1 - (game.price || 0) / (priceCap || 1), 0, 1);
+  const review = reviewScore(game);
 
   return {
     tags: tagScore,
     genres: genreScore,
     categories: categoryScore,
     price: priceScore,
+    review,
   };
 }
 
@@ -235,7 +238,6 @@ function matchesFilters(game, filters = {}) {
     fps: 'FPS',
     f2p: 'Free to Play',
     coop: 'Co-op',
-    // horror géré comme famille via includes "horror"/"horreur"
     horror: 'Horror',
     roguelite: 'Rogue-like',
     indie: 'Indie',
@@ -243,8 +245,8 @@ function matchesFilters(game, filters = {}) {
     rpg: 'RPG',
     simulator: 'Simulation',
   };
-  const tags = new Set((game.tags || []).map((t) => t.toLowerCase()));
-  const categories = new Set((game.categories || []).map((c) => c.toLowerCase()));
+  const tags = new Set((game.tags || []).map((t) => t.toString().toLowerCase()));
+  const categories = new Set((game.categories || []).map((c) => c.toString().toLowerCase()));
 
   if (filters.quick?.length) {
     for (const f of filters.quick) {
@@ -269,16 +271,15 @@ function matchesFilters(game, filters = {}) {
           'ghost',
           'monsters',
           'monster',
-          'cthulhu'
-  ];
-
-  const hasHorror = Array.from(tags).some((t) =>
-    horrorKeywords.some((kw) => t.includes(kw))
-  );
-
-  if (!hasHorror) return false;
-  continue;
-}
+          'cthulhu',
+          'dark fantasy',
+          'post-apocalyptic',
+        ];
+        const allTags = [...tags, ...categories];
+        const hasHorror = allTags.some((t) => horrorKeywords.some((kw) => t.includes(kw)));
+        if (!hasHorror) return false;
+        continue;
+      }
       if (mapped) {
         const lower = mapped.toLowerCase();
         if (!tags.has(lower) && !categories.has(lower)) return false;
@@ -320,8 +321,19 @@ function normalizeTitle(title) {
 }
 
 function passesQualityRules(game) {
-  if (game.total_reviews >= 10 && (game.review_ratio || 0) < 0.5) return false;
+  const ratio = game.review_ratio ?? 0;
+  const total = game.total_reviews ?? 0;
+  // Filtre plus strict pour limiter le shovelware bas de gamme.
+  if (total >= 50 && ratio < 0.7) return false;
+  if (total >= 10 && ratio < 0.55) return false;
   return true;
+}
+
+function reviewScore(game) {
+  const ratio = game.review_ratio ?? 0.6;
+  const total = game.total_reviews ?? 0;
+  const volumeFactor = Math.min(1, Math.log10(total + 1) / 3); // 0->1
+  return clamp((ratio - 0.5) * 2, 0, 1) * (0.5 + 0.5 * volumeFactor);
 }
 
 function isTooSimilar(a, b) {
