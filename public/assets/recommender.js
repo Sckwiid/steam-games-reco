@@ -28,6 +28,10 @@ export function shortlistCandidates({
     userId,
     bannedTitles,
   });
+  console.log('[reco] shortlist sample', {
+    total: scored.length,
+    sample: scored.slice(0, 5).map((g) => ({ name: g.name, price: g.price, ratio: g.review_ratio, reviews: g.total_reviews })),
+  });
   return scored.slice(0, limit);
 }
 
@@ -278,7 +282,13 @@ function matchesFilters(game, filters = {}) {
           'supernatural horror',
         ];
         const allTags = [...tags, ...categories];
-        const hasHorror = allTags.some((t) => horrorKeywords.some((kw) => t.includes(kw)));
+        // Match si un mot-clé est inclus OU si le tag contient "horror"/"horreur"
+        const hasHorror = allTags.some(
+          (t) =>
+            horrorKeywords.some((kw) => t.includes(kw)) ||
+            t.includes('horror') ||
+            t.includes('horreur')
+        );
         if (!hasHorror) return false;
         continue;
       }

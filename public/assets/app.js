@@ -212,6 +212,11 @@ async function runRecommendation({ mode = 'standard', forceReroll = false }) {
         candidates: toLlmCandidates(shortlist),
       }
     );
+    console.log('[reco] IA request payload', {
+      shortlistTitles: shortlist.map((g) => g.name),
+      shortlistSize: shortlist.length,
+    });
+    console.log('[reco] IA raw picks', aiPicks);
     let recos = mapAiPicksToGames(aiPicks, shortlist || dataset, shortlist).slice(0, 3);
 
     if (!recos.length) {
